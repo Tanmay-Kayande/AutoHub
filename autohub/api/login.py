@@ -9,8 +9,9 @@ from autohub.database.connection import get_db
 from typing import cast
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
+import os
 
-SECRET_KEY = "114a7157c109e1bdbfe0e4263172305a10a57ea3caf1da9ec7c958ce03b06af6"
+SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 10
 
