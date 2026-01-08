@@ -18,3 +18,7 @@ venv/
 
 # OS
 .DS_Store
+
+# Automation Runtime
+autohub/automation/brochures/data
+autohub/automation/discovery/data/
