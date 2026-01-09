@@ -6,6 +6,7 @@ import json
 import requests
 from pathlib import Path
 from datetime import datetime, timezone
+from .retry import with_retry, RetryError
 
 # Define the directory to save brochures
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -60,7 +61,15 @@ def download_pdf(url: str, save_path: Path) -> dict:
         }
 
     try:
-        response = requests.get(url, timeout=REQUEST_TIMEOUT)
+        def _request():
+            return requests.get(url, timeout=REQUEST_TIMEOUT)
+
+        response = with_retry(
+            _request,
+            max_retries=3,
+            base_delay=1,
+        )
+
         response.raise_for_status()
 
         content_type = response.headers.get("Content-Type", "").lower()
@@ -75,6 +84,12 @@ def download_pdf(url: str, save_path: Path) -> dict:
         return {
             "status": "success",
             "file_size_kb": round(len(response.content) / 1024, 2)
+        }
+
+    except RetryError as exc:
+        return {
+            "status": "failed",
+            "reason": f"Download failed after retries: {exc}"
         }
 
     except requests.exceptions.RequestException as exc:
