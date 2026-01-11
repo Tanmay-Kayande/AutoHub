@@ -22,3 +22,7 @@ venv/
 # Automation Runtime
 autohub/automation/brochures/data
 autohub/automation/discovery/data/
+
+# Checksum Runtime Files
+autohub/automation/brochures/downloader/checksums.json
+checksums.json

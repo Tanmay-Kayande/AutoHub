@@ -7,6 +7,7 @@ import requests
 from pathlib import Path
 from datetime import datetime, timezone
 from .retry import with_retry, RetryError
+from ..checksum import calculate_checksum, load_checksums, save_checksums
 
 # Define the directory to save brochures
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -54,10 +55,13 @@ def download_pdf(url: str, save_path: Path) -> dict:
     """
     Download brochure PDF and save to disk.
     """
-    if save_path.exists():
+    checksums = load_checksums()
+    file_key = save_path.name
+
+    if save_path.exists() and file_key in checksums:
         return {
             "status": "skipped",
-            "reason": "File already exists"
+            "reason": "File already exists with checksum"
         }
 
     try:
@@ -80,11 +84,23 @@ def download_pdf(url: str, save_path: Path) -> dict:
                 "reason": f"Unexpected content type: {content_type}"
             }
 
+        pdf_bytes = response.content
+        checksum = calculate_checksum(pdf_bytes)
+        
+        if checksums.get(file_key) == checksum:
+            return {
+                "status": "skipped",
+                "reason": "Checksum match (duplicate file)"
+            }
+        
         save_path.write_bytes(response.content)
+        checksums[file_key] = checksum
+        save_checksums(checksums)
 
         return {
             "status": "success",
-            "file_size_kb": round(len(response.content) / 1024, 2)
+            "file_size_kb": round(len(response.content) / 1024, 2),
+            "checksum": checksum
         }
 
     except RetryError as exc:
