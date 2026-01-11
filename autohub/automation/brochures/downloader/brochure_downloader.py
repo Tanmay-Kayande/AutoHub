@@ -64,6 +64,7 @@ def download_pdf(url: str, save_path: Path) -> dict:
         def _request():
             return requests.get(url, timeout=REQUEST_TIMEOUT)
 
+        # Use retry logic for downloading
         response = with_retry(
             _request,
             max_retries=3,
