@@ -1,160 +1,64 @@
 import re
-from autohub.model.schemas import Car
+from typing import Any
 from autohub.automation.brochures.parser.contract import ParsedDocument
 
 
-class CarExtractorV1:
+class CarExtractor:
     """
-    V1 extractor:
-    - Single car per brochure
-    - English text
-    - Regex / rule based
-    - Schema-safe (no None for required fields)
+    Generic Mahindra brochure extractor
+    Works with fragmented or merged text
     """
 
-    def extract(self, parsed_doc: ParsedDocument) -> Car:
-        text = " ".join(
+    ENGINE_CAPACITY_RE = re.compile(r"\b(\d\.\d)\s*l\b", re.I)
+    POWER_RE = re.compile(r"\b(\d+)\s*kw\b", re.I)
+    TORQUE_RE = re.compile(r"\b(\d+)\s*nm\b", re.I)
+
+    def extract(self, parsed_doc: ParsedDocument) -> dict:
+        extracted: dict[str, Any] = {}
+
+        # ----------------------------------
+        # 1️⃣ Normalize ALL text into one blob
+        # ----------------------------------
+        all_text = " ".join(
             block.content
             for block in parsed_doc.blocks
-            if block.type == "text" and isinstance(block.content, str)
-        )
+            if block.type == "text"
+        ).lower()
 
-        return Car(
-            car_name=self._find_name(text),
-            car_model=self._find_model(text),
-            car_brand=self._find_brand(text),
-            car_type="SUV",
-            car_color="Unknown",
-            car_launch_date="01-01-1970",
-            car_engine=self._find_engine(text),
-            car_engine_capacity=self._find_engine_capacity(text),
-            car_torque=0.0,
-            car_power=0.0,
-            car_fuel=self._find_fuel(text),
-            car_mileage=self._find_mileage(text),
-            car_transmission=self._find_transmission(text),
-            car_price=self._find_price(text),
-            car_description=None,
-            car_images=[],
-        )
+        # ----------------------------------
+        # 2️⃣ Extract specs (layout-agnostic)
+        # ----------------------------------
+        cap = self.ENGINE_CAPACITY_RE.search(all_text)
+        if cap:
+            extracted["car_engine_capacity"] = f"{cap.group(1)} L"
 
-    # -------------------------
-    # Safe extractors (NEVER return None for required fields)
-    # -------------------------
+        power = self.POWER_RE.search(all_text)
+        if power:
+            extracted["car_power"] = f"{power.group(1)} kW"
 
-    def _find_name(self, text: str) -> str:
-        t = text.upper()
-        if "THAR ROXX" in t:
-            return "Mahindra Thar ROXX"
-        if "THAR" in t:
-            return "Mahindra Thar"
-        return "Unknown"
+        torque = self.TORQUE_RE.search(all_text)
+        if torque:
+            extracted["car_torque"] = f"{torque.group(1)} Nm"
 
-    def _find_model(self, text: str) -> str:
-        return "Thar ROXX" if "ROXX" in text.upper() else "Unknown"
+        if "diesel" in all_text:
+            extracted["car_fuel"] = "Diesel"
+        elif "petrol" in all_text:
+            extracted["car_fuel"] = "Petrol"
 
-    def _find_brand(self, text: str) -> str:
-        return "Mahindra" if "MAHINDRA" in text.upper() else "Unknown"
+        # ----------------------------------
+        # 3️⃣ Transmission from tables
+        # ----------------------------------
+        table_text = " ".join(
+            cell.get("text", "")
+            for block in parsed_doc.blocks
+            if block.type == "table" and isinstance(block.content, dict)
+            for cell in block.content.get("cells", [])
+            if isinstance(cell, dict)
+        ).lower()
 
-    def _find_engine(self, text: str) -> str:
-        match = re.search(r"(\d{3,4}\s?cc)", text, re.IGNORECASE)
-        return match.group(1) if match else "Unknown"
+        if "automatic" in table_text:
+            extracted["car_transmission"] = "Automatic"
+        elif "manual" in table_text:
+            extracted["car_transmission"] = "Manual"
 
-    def _find_engine_capacity(self, text: str) -> int:
-        match = re.search(r"(\d{3,4})\s?cc", text, re.IGNORECASE)
-        return int(match.group(1)) if match else 0
-
-    def _find_fuel(self, text: str) -> str:
-        t = text.upper()
-        if "DIESEL" in t:
-            return "Diesel"
-        if "PETROL" in t:
-            return "Petrol"
-        return "Unknown"
-
-    def _find_mileage(self, text: str) -> float:
-        match = re.search(r"(\d{1,2}\.?\d*)\s?km/?l", text, re.IGNORECASE)
-        return float(match.group(1)) if match else 0.0
-
-    def _find_price(self, text: str) -> float:
-        match = re.search(r"₹\s?([\d,.]+)", text)
-        if match:
-            return float(match.group(1).replace(",", ""))
-        return 0.0
-
-    def _find_transmission(self, text: str) -> str:
-        t = text.upper()
-        if "AUTOMATIC" in t:
-            return "Automatic"
-        if "MANUAL" in t:
-            return "Manual"
-        return "Unknown"
-
-
-
-"""
-from autohub.model.schemas import Car
-import re
-
-class CarExtractorV1:
-
-    def extract(self, parsed_doc) -> Car:
-        text = " ".join(parsed_doc.text_blocks)
-
-        return Car(
-            car_name=self._find_name(parsed_doc),
-            car_model=self._find_model(parsed_doc),
-            car_brand=self._find_brand(parsed_doc),
-            car_type="SUV",
-            car_color="Unknown",
-            car_launch_date="01-01-2024",
-            car_engine=self._find_engine(text),
-            car_engine_capacity=self._engine_capacity(text),
-            car_torque=0.0,
-            car_power=0.0,
-            car_fuel=self._find_fuel(text),
-            car_mileage=self._find_mileage(text),
-            car_transmission="Manual",
-            car_price=self._find_price(text),
-            car_description=None,
-            car_images=[]
-        )
-
-    # ---------------- helpers ----------------
-
-    def _find_name(self, parsed_doc) -> str:
-        return parsed_doc.metadata.get("title", "Unknown Car")
-
-    def _find_model(self, parsed_doc) -> str:
-        return parsed_doc.metadata.get("title", "Unknown Model")
-
-    def _find_brand(self, parsed_doc) -> str:
-        return "Mahindra"  # hardcoded for v1
-
-    def _find_engine(self, text: str) -> str:
-        match = re.search(r"(\d{3,4}\s?cc)", text, re.IGNORECASE)
-        return match.group(1) if match else "Unknown"
-
-    def _engine_capacity(self, text: str) -> float:
-        match = re.search(r"(\d\.\d|\d{3,4})\s?cc", text, re.IGNORECASE)
-        if not match:
-            return 0.0
-        value = match.group(1)
-        return float(value) / 1000 if len(value) > 3 else float(value)
-
-    def _find_fuel(self, text: str) -> str:
-        for fuel in ["Petrol", "Diesel", "Electric", "Hybrid"]:
-            if fuel.lower() in text.lower():
-                return fuel
-        return "Unknown"
-
-    def _find_mileage(self, text: str) -> float:
-        match = re.search(r"(\d+(\.\d+)?)\s?kmpl", text, re.IGNORECASE)
-        return float(match.group(1)) if match else 0.0
-
-    def _find_price(self, text: str) -> float:
-        match = re.search(r"₹\s?([\d,.]+)", text)
-        if not match:
-            return 0.0
-        return float(match.group(1).replace(",", ""))
-"""
+        return extracted
