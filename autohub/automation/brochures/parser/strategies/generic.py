@@ -7,7 +7,7 @@ from docling.datamodel.base_models import InputFormat
 class GenericDoclingParser:
     def __init__(self):
         pdf_pipeline_options = PdfPipelineOptions(
-            do_ocr=True
+            do_ocr=False
         )
         format_options: dict[InputFormat, FormatOption] = {
             InputFormat.PDF: PdfFormatOption(

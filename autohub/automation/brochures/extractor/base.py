@@ -1,11 +1,12 @@
 """
 Extract Car information from parsed documents.
 """
-from abc import ABC, abstractmethod
-from autohub.model.schemas import Car
+from typing import Dict, Any
 
-class BaseCarExtractor(ABC):
-    @abstractmethod
-    def extract(self, parsed_doc) -> Car:
-        pass
+class ExtractionSource:
 
+    priority: int = 100
+
+    def extract(self) -> Dict[str, Any]:
+        raise NotImplementedError("extract() must be implemented")
+    

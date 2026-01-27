@@ -1,43 +1,50 @@
-from autohub.automation.brochures.parser.strategies.generic import GenericDoclingParser
-from autohub.automation.brochures.extractor.car_extractor import CarExtractor
 from pathlib import Path
+from autohub.automation.brochures.extractor.car_extractor import CarExtractor
+from autohub.automation.brochures.extractor.sources.brochure_pdf import BrochurePdfExtractor
+from autohub.automation.brochures.extractor.sources.mahindra_web import MahindraWebExtractor
+
 
 def main():
     base = Path(__file__).resolve().parents[3]
     pdf_path = (base / "automation" / "brochures" / "data" / "pdfs" / "Mahindra" / "Thar_Roxx" / "2024" / "brochure.pdf")
     
+    assert pdf_path.exists(), f"PDF not found: {pdf_path}"
 
-    # Step 1: Parse
-    parser = GenericDoclingParser()
-    parsed_document = parser.parse(str(pdf_path))
+    web_source = MahindraWebExtractor(model="thar-roxx")
+    brochure_source = BrochurePdfExtractor(str(pdf_path))
 
-    print("\n--- PARSED DOCUMENT DEBUG ---")
-    print("source:", parsed_document.source)
-    print("number_of_blocks =", len(parsed_document.blocks))
-    
-    text_blocks = [b for b in parsed_document.blocks if b.type == "text"]
-    table_blocks = [b for b in parsed_document.blocks if b.type == "table"]
+   # -------------------------------------------------
+    # Orchestrator (priority: web → pdf)
+    # -------------------------------------------------
+    extractor = CarExtractor(
+        sources=[
+            web_source,
+            brochure_source,
+        ]
+    )
 
-    print("Text blocks:", len(text_blocks))
-    print("Table blocks:", len(table_blocks))
+    # -------------------------------------------------
+    # Run extraction
+    # -------------------------------------------------
+    extracted_data = extractor.extract()
 
-    print("\nFirst 2 text blocks:")
-    for b in text_blocks[:2]:
-        print("-", b.content[:200], "...")
+    # -------------------------------------------------
+    # Output results
+    # -------------------------------------------------
+    print("\n=== FINAL MERGED CAR DATA ===")
 
-    # Step 2: Extract car info
-    extractor = CarExtractor()
-    extracted_data = extractor.extract(parsed_document)
+    if not extracted_data:
+        print("(no data extracted)")
+    else:
+        for key, value in extracted_data.items():
+            print(f"{key}: {value}")
 
-    print("\n=== EXTRACTED RAW DATA (v2) ===")
-    for key, value in extracted_data.items():
-        print(f"{key}: {value}")
+    # -------------------------------------------------
+    # Sanity check (non-blocking)
+    # -------------------------------------------------
+    print("\n=== SANITY CHECK ===")
 
-
-    print("\n=== Sanity Check ===")
-    
-    required_fields = [
-        "car_engine",
+    expected_fields = [
         "car_engine_capacity",
         "car_power",
         "car_torque",
@@ -47,8 +54,9 @@ def main():
         "car_price",
     ]
 
-    for keys in required_fields:
-        print(f"{keys}: {'OK' if keys in extracted_data else 'MISSING'}")
+    for field in expected_fields:
+        status = "OK" if field in extracted_data else "MISSING"
+        print(f"{field}: {status}")
 
 if __name__ == "__main__":
     main()
