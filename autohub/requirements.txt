@@ -10,3 +10,5 @@ python-dotenv
 requests
 pytest
 docling
+google-genai
+pymupdf
