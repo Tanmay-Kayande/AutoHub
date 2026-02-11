@@ -7,7 +7,7 @@ from fastapi import Depends
 from autohub.database import model
 from autohub.database.connection import get_db
 from passlib.context import CryptContext
-from autohub.api.login import get_current_token
+from autohub.api.login import get_current_user
 from typing import cast
 
 router = APIRouter()
@@ -54,7 +54,7 @@ def sign_up(request: User, db: Session = Depends(get_db)):
     return {"message": f"User {request.name} signed up successfully"}
 
 @router.get("/users")
-def get_users(request: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db), current_user: model.User = Depends(get_current_token)):
+def get_users(request: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db), current_user: model.User = Depends(get_current_user)):
     users = db.query(model.User).all()
     return users
 
