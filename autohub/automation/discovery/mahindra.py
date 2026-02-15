@@ -146,9 +146,3 @@ def discover_mahindra_brochures() -> List[Dict]:
 def save_discovery(data: List[Dict]) -> None:
     with OUTPUT_FILE.open("w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
-
-# RUN
-if __name__ == "__main__":
-    discovery_data = discover_mahindra_brochures()
-    save_discovery(discovery_data)
-    print(f"Discovery data saved to {OUTPUT_FILE}")
