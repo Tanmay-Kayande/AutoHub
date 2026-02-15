@@ -12,3 +12,4 @@ pytest
 docling
 google-genai
 pymupdf
+playwright==1.58.0
