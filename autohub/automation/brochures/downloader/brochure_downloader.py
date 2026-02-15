@@ -1,15 +1,19 @@
 """
-Download brochures from given URLs and save them to a specified directory.
+Download brochures from discovery JSON and store them locally
+with checksum validation and metadata tracking.
 """
 
 import json
 import requests
 from pathlib import Path
 from datetime import datetime, timezone
+from typing import List, Dict
+
 from .retry import with_retry, RetryError
 from ..checksum import calculate_checksum, load_checksums, save_checksums
 
-# Define the directory to save brochures
+
+# PATH CONFIGURATION
 BASE_DIR = Path(__file__).resolve().parents[2]
 
 DISCOVERY_FILE = BASE_DIR / "discovery/data/mahindra_brochures.json"
@@ -19,10 +23,8 @@ METADATA_FILE = BASE_DIR / "brochures/data/metadata/brochure_download_metadata.j
 
 REQUEST_TIMEOUT = 15  # seconds
 
-def load_discovery_file(file_path: Path) -> list[dict]:
-    """
-    Load discovery JSON and normalize to list[dict].
-    """
+# LOAD DISCOVERY FILE
+def load_discovery_file(file_path: Path) -> List[Dict]:
     if not file_path.exists():
         raise FileNotFoundError(f"Discovery file not found: {file_path}")
 
@@ -32,31 +34,27 @@ def load_discovery_file(file_path: Path) -> list[dict]:
     if isinstance(data, list):
         return data
 
-    if isinstance(data, dict):
-        if "cars" in data and isinstance(data["cars"], list):
-            return data["cars"]
-
     raise ValueError(
         f"Invalid discovery file format. Expected list[dict], got {type(data)}"
     )
 
-def build_download_path(item: dict) -> Path:
-   
-    brand = "Mahindra"
+# BUILD DOWNLOAD PATH
+def build_download_path(item: Dict) -> Path:
+    brand = item.get("brand", "Unknown")
     model = item["model"].strip().replace(" ", "_")
-    year = item.get("year", "unknown")
+    year = item.get("year") or "unknown"
 
     folder = PDF_BASE_DIR / brand / model / str(year)
     folder.mkdir(parents=True, exist_ok=True)
 
     return folder / "brochure.pdf"
 
-def download_pdf(url: str, save_path: Path) -> dict:
-    """
-    Download brochure PDF and save to disk.
-    """
+# DOWNLOAD PDF
+def download_pdf(url: str, save_path: Path) -> Dict:
     checksums = load_checksums()
-    file_key = save_path.name
+
+    # Use relative path as checksum key (fixes collision bug)
+    file_key = str(save_path.relative_to(PDF_BASE_DIR))
 
     if save_path.exists() and file_key in checksums:
         return {
@@ -68,7 +66,6 @@ def download_pdf(url: str, save_path: Path) -> dict:
         def _request():
             return requests.get(url, timeout=REQUEST_TIMEOUT)
 
-        # Use retry logic for downloading
         response = with_retry(
             _request,
             max_retries=3,
@@ -78,7 +75,9 @@ def download_pdf(url: str, save_path: Path) -> dict:
         response.raise_for_status()
 
         content_type = response.headers.get("Content-Type", "").lower()
-        if "pdf" not in content_type:
+
+        # Safer PDF validation
+        if "pdf" not in content_type and not url.lower().endswith(".pdf"):
             return {
                 "status": "failed",
                 "reason": f"Unexpected content type: {content_type}"
@@ -86,20 +85,21 @@ def download_pdf(url: str, save_path: Path) -> dict:
 
         pdf_bytes = response.content
         checksum = calculate_checksum(pdf_bytes)
-        
+
         if checksums.get(file_key) == checksum:
             return {
                 "status": "skipped",
                 "reason": "Checksum match (duplicate file)"
             }
-        
-        save_path.write_bytes(response.content)
+
+        save_path.write_bytes(pdf_bytes)
+
         checksums[file_key] = checksum
         save_checksums(checksums)
 
         return {
             "status": "success",
-            "file_size_kb": round(len(response.content) / 1024, 2),
+            "file_size_kb": round(len(pdf_bytes) / 1024, 2),
             "checksum": checksum
         }
 
@@ -115,7 +115,7 @@ def download_pdf(url: str, save_path: Path) -> dict:
             "reason": str(exc)
         }
 
-#Run downloader    
+# RUN DOWNLOADER
 def run_brochure_downloader():
     brochures = load_discovery_file(DISCOVERY_FILE)
     results = []
@@ -129,8 +129,8 @@ def run_brochure_downloader():
         result = download_pdf(url, save_path)
 
         results.append({
-            "brand": "Mahindra",
-            "model": item["model"],
+            "brand": item.get("brand"),
+            "model": item.get("model"),
             "year": item.get("year"),
             "brochure_url": url,
             "file_path": str(save_path) if result["status"] == "success" else None,
@@ -140,8 +140,10 @@ def run_brochure_downloader():
         })
 
     METADATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+
     with METADATA_FILE.open("w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
 
-if __name__ == "__main__":
-    run_brochure_downloader()
+    print("Download process completed.")
+    print("Metadata saved to:", METADATA_FILE)
+
