@@ -4,16 +4,7 @@ Run AutoHub brochure automation pipeline.
 
 from pathlib import Path
 
-# ---------------------------
-# CONFIG
-# ---------------------------
-
 FORCE_REPROCESS = True   # Set True to ignore checksum and force extraction
-
-
-# ---------------------------
-# Imports
-# ---------------------------
 
 from autohub.automation.discovery.mahindra import (
     discover_mahindra_brochures,
@@ -42,30 +33,22 @@ from autohub.automation.brochures.checksum import (
 from autohub.automation.brochures.utils import iter_downloaded_pdfs
 
 
-# ---------------------------
 # MAIN PIPELINE
-# ---------------------------
 
 def run_brochure_pipeline():
 
-    # ---------------------------
     # STEP 1: Discovery
-    # ---------------------------
     print("Starting Mahindra brochure discovery...")
     data = discover_mahindra_brochures()
     save_discovery(data)
     print("Discovery completed.")
 
-    # ---------------------------
     # STEP 2: Download
-    # ---------------------------
     print("Starting brochure downloader...")
     run_brochure_downloader()
     print("Brochure download completed.")
 
-    # ---------------------------
     # STEP 3: Extraction + DB
-    # ---------------------------
     checksums = load_checksums()
     db = session_local()
 
@@ -109,9 +92,7 @@ def run_brochure_pipeline():
 
             print(f"Processing brochure: {pdf_path}")
 
-            # ---------------------------
             # Gemini Extraction
-            # ---------------------------
             extractor = PDFTextLLMExtractor(str(pdf_path))
             raw_result = extractor.extract()
 
@@ -123,9 +104,7 @@ def run_brochure_pipeline():
                 print(f"No variants found in {pdf_path}")
                 continue
 
-            # ---------------------------
             # Normalize + Write DB
-            # ---------------------------
             for variant in variants:
                 normalized = normalize_variant(
                     variant=variant,
@@ -152,10 +131,6 @@ def run_brochure_pipeline():
     finally:
         db.close()
 
-
-# ---------------------------
-# ENTRY POINT
-# ---------------------------
 
 if __name__ == "__main__":
     run_brochure_pipeline()
