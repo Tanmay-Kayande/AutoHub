@@ -1,14 +1,14 @@
 import json
 import time
 from typing import List, Dict, Any, Optional, cast
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from google import genai
 from google.genai import types
 
 from autohub.core.config import GEMINI_API_KEY
 from autohub.automation.brochures.extractor.base import ExtractionSource
 
-# --- 1. Schema Definition ---
+# --- 1. Schema Definition (Simplified) ---
 class VariantSpec(BaseModel):
     variant_name: str
     engine: Optional[str] = None
@@ -45,16 +45,42 @@ class PDFTextLLMExtractor(ExtractionSource):
             assert uploaded_file.name is not None
             file_name = uploaded_file.name
 
+            # Wait for file processing
             while uploaded_file.state == "PROCESSING":
                 time.sleep(2)
                 uploaded_file = self.client.files.get(name=file_name)
             
-            prompt = (
-                "Refer to the 'Specifications' table on page 32. "
-                "The table has columns for Petrol and Diesel engines. "
-                "Match trims (MX1, MX3, AX7L, etc.) to their specific Power/Torque values. "
-                "Provide the result in valid JSON format only."
-            )
+            # Simplified Prompt focusing on the last 2-3 pages
+            prompt = """
+You are given a full car brochure PDF.
+
+Focus ONLY on the last 3 pages of the brochure.
+These pages typically contain the technical specification tables.
+
+From those pages, extract structured variant-level data.
+
+For EACH variant, extract:
+- variant_name
+- engine
+- engine_capacity
+- fuel_type
+- transmission
+- power
+- torque
+- mileage
+- price
+
+Rules:
+- Only extract data that is clearly present in specification tables.
+- Ignore marketing text, images, feature descriptions, and disclaimers.
+- If a field is missing for a variant, return null.
+- Do NOT guess values.
+- Do NOT summarize.
+- Do NOT explain anything.
+
+Return ONLY valid JSON matching the provided schema.
+No markdown. No commentary. No extra text.
+""".strip()
 
             response = self.client.models.generate_content(
                 model=ACTIVE_MODEL,
@@ -67,14 +93,14 @@ class PDFTextLLMExtractor(ExtractionSource):
                 ),
             )
             
+            # Cleanup
             self.client.files.delete(name=file_name)
 
-            #ROBUST PARSING LOGIC
+            # Robust Parsing
             if response.parsed:
                 return cast(BrochureData, response.parsed).model_dump()
             
             raw_text = (response.text or "").strip()
-
             try:
                 return json.loads(raw_text)
             except Exception:

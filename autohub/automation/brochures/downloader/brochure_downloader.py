@@ -133,7 +133,7 @@ def run_brochure_downloader():
             "model": item.get("model"),
             "year": item.get("year"),
             "brochure_url": url,
-            "file_path": str(save_path) if result["status"] == "success" else None,
+            "file_path": str(save_path),
             "status": result["status"],
             "reason": result.get("reason"),
             "timestamp_utc": datetime.now(timezone.utc).isoformat()
