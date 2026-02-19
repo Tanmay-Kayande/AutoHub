@@ -1,5 +1,7 @@
 # 🚗 AutoHub Backend
 
+![Version](https://img.shields.io/badge/version-v1.5.1-blue)
+
 AutoHub is an automation-first backend system for discovering, downloading, and extracting structured vehicle specifications from official automotive brochures using Gemini LLM.
 
 It also provides production-ready backend APIs for cars, automotive news, and authentication.
