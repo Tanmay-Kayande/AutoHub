@@ -1,103 +1,98 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+
 from autohub.database import model
 from autohub.database.connection import get_db
-from autohub.model.schemas import News, NewsUpdate
-from sqlalchemy.exc import IntegrityError
+from autohub.model.schemas import NewsCreate, NewsRead, NewsUpdate
 
 router = APIRouter(
     prefix="/news",
     tags=["news"],
 )
 
-@router.post("/add_news")
-def add_news(request: News, db: Session = Depends(get_db)):
-    
+# CREATE NEWS
+@router.post("/", response_model=NewsRead, status_code=status.HTTP_201_CREATED)
+def create_news(request: NewsCreate, db: Session = Depends(get_db)):
+
     data = request.model_dump()
-    image_urls = data.pop("news_images", [])
+    image_data = data.pop("news_images", [])
 
     new_news = model.News(**data)
 
-    # accept either list[str] or list[dict] with {'image_url': str}
-    for img in image_urls:
-        if isinstance(img, dict):
-            url = img.get("image_url")
-        else:
-            url = img
-        if url:
-            image_obj = model.NewsImage(image_url=url)
-            new_news.news_images.append(image_obj)
+    # Add images
+    for img in image_data:
+        image_obj = model.NewsImage(image_url=img.image_url)
+        new_news.news_images.append(image_obj)
 
     try:
         db.add(new_news)
         db.commit()
         db.refresh(new_news)
+        return new_news
 
-        return {
-        "status": "success",
-        "message": f"News '{request.title}' added successfully",
-        "image_count": len(new_news.news_images)
-         }
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=400, detail="News with this title already exists")
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail="An unexpected error occurred while adding the news")
-    
-@router.get("/", response_model=list[News])
-def get_news(db: Session = Depends(get_db)):
-    news_items = db.query(model.News).all()
-    return news_items
 
-@router.put("/update_news/{news_id}")
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Error while creating news")
+    
+# GET ALL NEWS
+@router.get("/", response_model=list[NewsRead])
+def get_news(db: Session = Depends(get_db)):
+    return db.query(model.News).all()
+
+# UPDATE NEWS
+@router.put("/{news_id}", response_model=NewsRead)
 def update_news(news_id: int, request: NewsUpdate, db: Session = Depends(get_db)):
+
     news_item = db.query(model.News).filter(model.News.id == news_id).first()
+
     if not news_item:
-        raise HTTPException(status_code=404, detail="News item not found")
-    
+        raise HTTPException(status_code=404, detail="News not found")
+
     data = request.model_dump(exclude_unset=True, exclude_none=True)
-    data.pop("news_id", None)  # don't allow changing the primary key
-    image_urls = data.pop("news_images", [])
+    image_data = data.pop("news_images", None)
+
+    # Update basic fields
     for key, value in data.items():
-        if hasattr(news_item, key):
-            setattr(news_item, key, value)
-    
-    for img in image_urls:
-        if isinstance(img, dict):
-            url = img.get("image_url")
-        else:
-            url = img
-        if url:
-            image_obj = model.NewsImage(image_url=url)
+        setattr(news_item, key, value)
+
+    # If new images provided, append them
+    if image_data is not None:
+        for img in image_data:
+            image_obj = model.NewsImage(image_url=img.image_url)
             news_item.news_images.append(image_obj)
 
     try:
-        db.add(news_item)
         db.commit()
         db.refresh(news_item)
-        return {
-            "status": "success",
-            "message": f"News item with id {news_id} updated successfully",
-            "image_count": len(news_item.news_images)
-        }
+        return news_item
+
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=400, detail="News with this title already exists")
-    except Exception as e:
+        raise HTTPException(status_code=400, detail="Duplicate title detected")
+
+    except Exception:
         db.rollback()
-        raise HTTPException(status_code=500, detail="An unexpected error occurred while updating the news item")
+        raise HTTPException(status_code=500, detail="Error while updating news")
     
-@router.delete("/delete_news/{news_id}")
+# DELETE NEWS
+@router.delete("/{news_id}", status_code=status.HTTP_200_OK)
 def delete_news(news_id: int, db: Session = Depends(get_db)):
+
     news_item = db.query(model.News).filter(model.News.id == news_id).first()
+
     if not news_item:
-        raise HTTPException(status_code=404, detail="News item not found")
-    
+        raise HTTPException(status_code=404, detail="News not found")
+
     try:
         db.delete(news_item)
         db.commit()
-        return {"message": f"News item with id {news_id} deleted successfully"}
-    except Exception as e:
+        return {"message": f"News with id {news_id} deleted successfully"}
+
+    except Exception:
         db.rollback()
-        raise HTTPException(status_code=500, detail="An unexpected error occurred while deleting the news item")
+        raise HTTPException(status_code=500, detail="Error while deleting news")
