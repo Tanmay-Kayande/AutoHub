@@ -1,17 +1,23 @@
 from sqlalchemy import Column, Float, Integer, String, ForeignKey, UniqueConstraint
 from autohub.database.connection import Base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, Mapped, mapped_column
 
 
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    name = Column(String(50), nullable=False)
-    email = Column(String(256), unique=True, index=True, nullable=False)
-    gender = Column(String(10))
-    location = Column(String(60))
-    hashed_password = Column(String(200), nullable=False)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, index=True, autoincrement=True
+    )
+    name: Mapped[str] = mapped_column(String(50), nullable=False)
+    email: Mapped[str] = mapped_column(
+        String(256), unique=True, index=True, nullable=False
+    )
+    gender: Mapped[str | None] = mapped_column(String(10))
+    location: Mapped[str | None] = mapped_column(String(60))
+    hashed_password: Mapped[str] = mapped_column(
+        String(200), nullable=False
+    )
 
 
 class CarBrand(Base):
