@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import List, Dict
 
 from .retry import with_retry, RetryError
-from ..checksum import calculate_checksum, load_checksums, save_checksums
+from ..checksum import calculate_checksum, load_checksums, save_checksums, update_record
 
 
 # PATH CONFIGURATION
@@ -86,7 +86,10 @@ def download_pdf(url: str, save_path: Path) -> Dict:
         pdf_bytes = response.content
         checksum = calculate_checksum(pdf_bytes)
 
-        if checksums.get(file_key) == checksum:
+        stored = checksums.get(file_key)
+        stored_hash = stored.get("checksum") if isinstance(stored, dict) else stored
+
+        if stored_hash == checksum:
             return {
                 "status": "skipped",
                 "reason": "Checksum match (duplicate file)"
@@ -94,7 +97,13 @@ def download_pdf(url: str, save_path: Path) -> Dict:
 
         save_path.write_bytes(pdf_bytes)
 
-        checksums[file_key] = checksum
+        update_record(
+            checksums=checksums,
+            file_key=file_key,
+            checksum=checksum,
+            extracted=False,
+            model_version="",
+        )
         save_checksums(checksums)
 
         return {

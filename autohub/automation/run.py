@@ -4,7 +4,7 @@ Run AutoHub brochure automation pipeline.
 
 from pathlib import Path
 
-FORCE_REPROCESS = True   # Set True to ignore checksum and force extraction
+FORCE_REPROCESS = False  # Set True to ignore checksum and force extraction
 
 from autohub.automation.discovery.mahindra import (
     discover_mahindra_brochures,
@@ -28,6 +28,7 @@ from autohub.automation.brochures.checksum import (
     calculate_checksum,
     load_checksums,
     save_checksums,
+    update_record,
 )
 
 from autohub.automation.brochures.utils import iter_downloaded_pdfs
@@ -72,23 +73,32 @@ def run_brochure_pipeline():
             pdf_bytes = pdf_path.read_bytes()
             checksum = calculate_checksum(pdf_bytes)
 
-            # MUST match downloader logic
+            # Must match downloader logic
             file_key = str(pdf_path.relative_to(PDF_BASE_DIR))
 
-            stored_checksum = checksums.get(file_key)
+            # stored is always a dict now:
+            # {"checksum": "...", "extracted": True/False, "model_version": "...", "timestamp": "..."}
+            stored = checksums.get(file_key)
+            stored_hash = stored.get("checksum") if isinstance(stored, dict) else None
+            already_extracted = stored.get("extracted", False) if isinstance(stored, dict) else False
 
-            # Debug visibility
             print("\n---------------------------------")
-            print("File:", pdf_path)
-            print("File key:", file_key)
-            print("Stored checksum:", stored_checksum)
-            print("Current checksum:", checksum)
-            print("Checksum match:", stored_checksum == checksum)
+            print(f"File       : {pdf_path}")
+            print(f"Stored hash: {stored_hash}")
+            print(f"Current    : {checksum}")
+            print(f"Hash match : {stored_hash == checksum}")
+            print(f"Extracted  : {already_extracted}")
             print("---------------------------------")
 
-            if not FORCE_REPROCESS and stored_checksum == checksum:
-                print(f"Skipping unchanged brochure: {pdf_path}")
+            # Skip only if: same file AND already successfully extracted
+            if not FORCE_REPROCESS and stored_hash == checksum and already_extracted:
+                print(f"Skipping — already extracted: {pdf_path}")
                 continue
+
+            # Hash matches but extracted=False means download happened
+            # but extraction failed or never ran — so we reprocess
+            if stored_hash == checksum and not already_extracted:
+                print(f"Hash matches but extraction incomplete — reprocessing: {pdf_path}")
 
             print(f"Processing brochure: {pdf_path}")
 
@@ -102,6 +112,15 @@ def run_brochure_pipeline():
 
             if not variants:
                 print(f"No variants found in {pdf_path}")
+                # Mark as extracted=False so it retries next run
+                update_record(
+                    checksums=checksums,
+                    file_key=file_key,
+                    checksum=checksum,
+                    extracted=False,
+                    model_version="gemini-2.5-flash",
+                )
+                save_checksums(checksums)
                 continue
 
             # Normalize + Write DB
@@ -115,8 +134,14 @@ def run_brochure_pipeline():
                 if normalized:
                     write_car_payload(normalized, db)
 
-            # Update checksum only after successful processing
-            checksums[file_key] = checksum
+            # Mark as extracted=True only after successful processing
+            update_record(
+                checksums=checksums,
+                file_key=file_key,
+                checksum=checksum,
+                extracted=True,
+                model_version="gemini-2.5-flash",
+            )
             save_checksums(checksums)
 
             print(f"Completed brochure: {pdf_path}")
