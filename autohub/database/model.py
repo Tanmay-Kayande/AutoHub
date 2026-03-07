@@ -124,6 +124,7 @@ class CarImage(Base):
 
     image_url = Column(String(300), nullable=False)
     model_id = Column(Integer, ForeignKey("car_models.id"), nullable=False)
+    image_type = Column(String(20), nullable=True)
 
     model = relationship("CarModel", back_populates="images")
 

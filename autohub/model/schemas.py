@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Literal
 
 class User(BaseModel):
     id: int
@@ -106,7 +106,7 @@ class SpecRead(SpecBase):
 class ImageBase(BaseModel):
     model_id: int
     image_url: str = Field(..., max_length=300)
-
+    image_type: Optional[Literal["exterior", "interior"]] = None
 
 class ImageCreate(ImageBase):
     pass

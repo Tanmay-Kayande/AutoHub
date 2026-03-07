@@ -21,13 +21,8 @@ if not _gemini_key:
     raise RuntimeError("GEMINI_API_KEY is not set in .env file")
 GEMINI_API_KEY: Final[str] = _gemini_key
 
-# Image Search Engine API Key
-_search_api_key = os.getenv("Search_Engine_API")
-if not _search_api_key:
-    raise RuntimeError("Search_Engine_API is not set in .env file")
-SEARCH_ENGINE_API: Final[str] = _search_api_key
-
-_cse_id = os.getenv("GOOGLE_CSE_ID")
-if not _cse_id:
-    raise RuntimeError("GOOGLE_CSE_ID is not set in .env file")
-GOOGLE_CSE_ID: Final[str] = _cse_id
+# SerpAPI Key
+_serpapi_key = os.getenv("SERPAPI_KEY")
+if not _serpapi_key:
+    raise RuntimeError("SERPAPI_KEY is not set in .env file")
+SERPAPI_KEY: Final[str] = _serpapi_key
