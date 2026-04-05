@@ -10,6 +10,8 @@ from autohub.model.schemas import (BrandCreate, BrandRead, BrandNested,
                                       SpecCreate, SpecRead,
                                       ImageCreate, ImageRead)
 
+from autohub.api.login import get_current_user
+
 router = APIRouter(
     prefix="/catalog",
     tags=["catalog"]
@@ -18,7 +20,7 @@ router = APIRouter(
 # Brands
 
 @router.post("/brands",  response_model=BrandRead, status_code=status.HTTP_201_CREATED)
-def create_brand(request: BrandCreate, db: Session = Depends(get_db)):
+def create_brand(request: BrandCreate, db: Session = Depends(get_db), _: model.User = Depends(get_current_user)):
     brand = model.CarBrand(name=request.name)
 
     try:
@@ -38,7 +40,7 @@ def get_brands(db: Session = Depends(get_db)):
 # Models
 
 @router.post("/models", response_model=ModelRead, status_code=status.HTTP_201_CREATED)
-def create_model(request: ModelCreate, db: Session = Depends(get_db)):
+def create_model(request: ModelCreate, db: Session = Depends(get_db), _: model.User = Depends(get_current_user)):
     
     brand = db.query(model.CarBrand).filter_by(id=request.brand_id).first()
     if not brand:
@@ -62,7 +64,7 @@ def get_models(db: Session = Depends(get_db)):
 # Variants
 
 @router.post("/variants", response_model=VariantRead, status_code=status.HTTP_201_CREATED)
-def create_variant(request: VariantCreate, db: Session = Depends(get_db)):
+def create_variant(request: VariantCreate, db: Session = Depends(get_db), _: model.User = Depends(get_current_user)):
     
     model_obj = db.query(model.CarModel).filter_by(id=request.model_id).first()
     if not model_obj:
@@ -86,7 +88,7 @@ def get_variants(db: Session = Depends(get_db)):
 # Specs
 
 @router.post("/specs", response_model=SpecRead, status_code=status.HTTP_201_CREATED)
-def create_spec(request: SpecCreate, db: Session = Depends(get_db)):
+def create_spec(request: SpecCreate, db: Session = Depends(get_db), _: model.User = Depends(get_current_user)):
 
     variant = db.query(model.CarVariant).filter_by(id=request.variant_id).first()
     if not variant:
@@ -110,7 +112,7 @@ def get_specs(db: Session = Depends(get_db)):
 # Image
 
 @router.post("/images", response_model=ImageRead, status_code=status.HTTP_201_CREATED)
-def add_image(request: ImageCreate, db: Session = Depends(get_db)):
+def add_image(request: ImageCreate, db: Session = Depends(get_db), _: model.User = Depends(get_current_user)):
 
     model_obj = db.query(model.CarModel).filter_by(id=request.model_id).first()
     if not model_obj:

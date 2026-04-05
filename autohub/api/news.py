@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
+from autohub.api.login import get_current_user
 from autohub.database import model
 from autohub.database.connection import get_db
 from autohub.model.schemas import NewsCreate, NewsRead, NewsUpdate
@@ -13,7 +14,7 @@ router = APIRouter(
 
 # CREATE NEWS
 @router.post("/", response_model=NewsRead, status_code=status.HTTP_201_CREATED)
-def create_news(request: NewsCreate, db: Session = Depends(get_db)):
+def create_news(request: NewsCreate, db: Session = Depends(get_db), _: model.User = Depends(get_current_user)):
 
     data = request.model_dump()
     image_data = data.pop("news_images", [])
@@ -22,7 +23,7 @@ def create_news(request: NewsCreate, db: Session = Depends(get_db)):
 
     # Add images
     for img in image_data:
-        image_obj = model.NewsImage(image_url=img.image_url)
+        image_obj = model.NewsImage(image_url=img["image_url"])
         new_news.news_images.append(image_obj)
 
     try:
@@ -46,7 +47,7 @@ def get_news(db: Session = Depends(get_db)):
 
 # UPDATE NEWS
 @router.put("/{news_id}", response_model=NewsRead)
-def update_news(news_id: int, request: NewsUpdate, db: Session = Depends(get_db)):
+def update_news(news_id: int, request: NewsUpdate, db: Session = Depends(get_db), _: model.User = Depends(get_current_user)):
 
     news_item = db.query(model.News).filter(model.News.id == news_id).first()
 
@@ -62,6 +63,7 @@ def update_news(news_id: int, request: NewsUpdate, db: Session = Depends(get_db)
 
     # If new images provided, append them
     if image_data is not None:
+        news_item.news_images.clear()
         for img in image_data:
             image_obj = model.NewsImage(image_url=img.image_url)
             news_item.news_images.append(image_obj)
@@ -81,7 +83,7 @@ def update_news(news_id: int, request: NewsUpdate, db: Session = Depends(get_db)
     
 # DELETE NEWS
 @router.delete("/{news_id}", status_code=status.HTTP_200_OK)
-def delete_news(news_id: int, db: Session = Depends(get_db)):
+def delete_news(news_id: int, db: Session = Depends(get_db), _: model.User = Depends(get_current_user)):
 
     news_item = db.query(model.News).filter(model.News.id == news_id).first()
 
