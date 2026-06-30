@@ -26,3 +26,5 @@ autohub/automation/discovery/data/
 # Checksum Runtime Files
 autohub/automation/brochures/downloader/checksums.json
 checksums.json
+
+AutoHub.code-workspace

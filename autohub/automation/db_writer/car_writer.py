@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from autohub.database.model import CarBrand, CarModel, CarVariant, CarSpec
 
+
 def write_car_payload(payload: dict, db: Session) -> None:
     """
     Insert normalized car payload into DB.
@@ -13,7 +14,6 @@ def write_car_payload(payload: dict, db: Session) -> None:
         db.add(brand)
         db.flush()
 
-    
     model_data = payload["model"]
     model = (
         db.query(CarModel).filter_by(name=model_data["name"], brand_id=brand.id).first()
@@ -32,7 +32,12 @@ def write_car_payload(payload: dict, db: Session) -> None:
 
     variant_data = payload["variant"]
     variant = (
-        db.query(CarVariant).filter_by(model_id=model.id, variant_name=variant_data["name"],).first()
+        db.query(CarVariant)
+        .filter_by(
+            model_id=model.id,
+            variant_name=variant_data["name"],
+        )
+        .first()
     )
 
     if not variant:
@@ -45,7 +50,6 @@ def write_car_payload(payload: dict, db: Session) -> None:
         )
         db.add(variant)
         db.flush()
-
 
     spec_data = payload["spec"]
 

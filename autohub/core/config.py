@@ -26,3 +26,9 @@ _serpapi_key = os.getenv("SERPAPI_KEY")
 if not _serpapi_key:
     raise RuntimeError("SERPAPI_KEY is not set in .env file")
 SERPAPI_KEY: Final[str] = _serpapi_key
+
+# Database URL
+_database_url = os.getenv("DATABASE_URL")
+if not _database_url:
+    raise RuntimeError("DATABASE_URL is not set in .env file")
+DATABASE_URL: Final[str] = _database_url
