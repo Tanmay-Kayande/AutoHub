@@ -417,3 +417,56 @@ class ErrorBody(BaseModel):
 
 class ErrorOut(BaseModel):
     error: ErrorBody
+
+
+# ------------------------------------------------------------------------ pipeline
+PipelineStage = Literal["discover", "download", "extract", "images", "index"]
+
+
+class PipelineLimitsIn(BaseModel):
+    max_extractions: int | None = Field(default=None, ge=0, le=500)
+    max_image_searches: int | None = Field(default=None, ge=0, le=500)
+
+
+class PipelineRunIn(BaseModel):
+    brands: list[str] | None = Field(default=None, max_length=20)
+    stages: list[PipelineStage] | None = None
+    limits: PipelineLimitsIn = Field(default_factory=PipelineLimitsIn)
+
+
+class PipelineRunStarted(BaseModel):
+    run_id: int
+
+
+class PipelineRunOut(ORMModel):
+    id: int
+    trigger: str
+    triggered_by: int | None
+    status: str
+    options: dict[str, Any] | None
+    stats: dict[str, Any] | None
+    error: str | None
+    started_at: datetime
+    finished_at: datetime | None
+
+
+class ExtractionRunOut(ORMModel):
+    id: int
+    brochure_version_id: int
+    pipeline_run_id: int | None
+    llm_provider: str
+    llm_model: str
+    prompt_version: str
+    status: str
+    error_type: str | None
+    error_message: str | None
+    attempts: int
+    input_tokens: int | None
+    output_tokens: int | None
+    variants_found: int | None
+    specs_written: int | None
+    specs_unchanged: int | None
+    conflicts_skipped: int | None
+    unknown_keys: int | None
+    started_at: datetime
+    finished_at: datetime | None

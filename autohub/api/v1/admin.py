@@ -5,8 +5,10 @@ Every route requires the ``admin`` role.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, status
-from sqlalchemy import select
+import threading
+
+from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -15,9 +17,13 @@ from autohub.api.schemas import (
     BrandOut,
     BrandUpdateIn,
     BrochureOut,
+    ExtractionRunOut,
     ModelIn,
     ModelSummary,
     ModelUpdateIn,
+    PipelineRunIn,
+    PipelineRunOut,
+    PipelineRunStarted,
     SpecValueIn,
     SpecValueOut,
     UserAdminUpdateIn,
@@ -36,13 +42,18 @@ from autohub.db.models import (
     FUEL_TYPES,
     TRANSMISSION_TYPES,
     Brand,
+    BrochureVersion,
+    ExtractionRun,
     ModelGeneration,
+    PipelineRun,
     SpecDefinition,
     User,
     Variant,
     VehicleModel,
 )
-from autohub.db.session import get_db
+from autohub.db.session import get_db, get_engine
+from autohub.jobs.locks import is_locked
+from autohub.jobs.pipeline import DEFAULT_STAGES, PipelineOptions, build_pipeline
 from autohub.specs.presentation import to_spec_value
 from autohub.specs.service import SpecValueInput, apply_spec_values, load_variant_specs
 from autohub.specs.units import convert
@@ -210,6 +221,85 @@ def set_variant_spec(
 @router.get("/brochures", response_model=list[BrochureOut])
 def list_brochures(brand_id: int | None = None, db: Session = Depends(get_db)) -> list[BrochureOut]:
     return catalog.list_brochures(db, brand_id=brand_id)
+
+
+# ----------------------------------------------------------------------- pipeline
+def launch_pipeline(options: PipelineOptions, run_id: int) -> None:
+    """Run the pipeline in a background thread (tests replace this)."""
+
+    def target() -> None:
+        from autohub.db.session import get_session_factory
+
+        db = get_session_factory()()
+        try:
+            build_pipeline().run(db, options, run_id=run_id)
+        except Exception:  # recorded on the run row by the pipeline
+            pass
+        finally:
+            db.close()
+
+    threading.Thread(target=target, name=f"pipeline-{run_id}", daemon=True).start()
+
+
+@router.post("/pipeline/run", response_model=PipelineRunStarted, status_code=status.HTTP_202_ACCEPTED)
+def start_pipeline(
+    data: PipelineRunIn, admin: User = Depends(require_admin), db: Session = Depends(get_db)
+) -> PipelineRunStarted:
+    if is_locked(get_engine().connect):
+        raise ConflictError("A pipeline run is already in progress.")
+    options = PipelineOptions(
+        brands=[b.strip().lower() for b in data.brands if b.strip()] if data.brands else None,
+        stages=tuple(data.stages) if data.stages else DEFAULT_STAGES,
+        max_extractions=data.limits.max_extractions,
+        max_image_searches=data.limits.max_image_searches,
+        trigger="manual",
+        triggered_by=admin.id,
+    )
+    run = PipelineRun(trigger="manual", triggered_by=admin.id, status="running", options=options.as_dict())
+    db.add(run)
+    db.commit()
+    launch_pipeline(options, run.id)
+    return PipelineRunStarted(run_id=run.id)
+
+
+@router.get("/pipeline/runs", response_model=Page[PipelineRunOut])
+def list_pipeline_runs(
+    params: PageParams = Depends(page_params), db: Session = Depends(get_db)
+) -> Page[PipelineRunOut]:
+    total = int(db.execute(select(func.count()).select_from(PipelineRun)).scalar_one())
+    rows = db.execute(
+        select(PipelineRun).order_by(PipelineRun.id.desc()).offset(params.offset).limit(params.page_size)
+    ).scalars()
+    return make_page([PipelineRunOut.model_validate(r) for r in rows], total, params)
+
+
+@router.get("/pipeline/runs/{run_id}", response_model=PipelineRunOut)
+def get_pipeline_run(run_id: int, db: Session = Depends(get_db)) -> PipelineRun:
+    run = db.get(PipelineRun, run_id)
+    if run is None:
+        raise NotFoundError(f"Pipeline run {run_id} was not found.")
+    return run
+
+
+@router.get("/extraction-runs", response_model=Page[ExtractionRunOut])
+def list_extraction_runs(
+    status_filter: str | None = Query(None, alias="status"),
+    brochure_id: int | None = None,
+    params: PageParams = Depends(page_params),
+    db: Session = Depends(get_db),
+) -> Page[ExtractionRunOut]:
+    stmt = select(ExtractionRun)
+    if status_filter:
+        stmt = stmt.where(ExtractionRun.status == status_filter)
+    if brochure_id is not None:
+        stmt = stmt.join(BrochureVersion, BrochureVersion.id == ExtractionRun.brochure_version_id).where(
+            BrochureVersion.brochure_id == brochure_id
+        )
+    total = int(db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one())
+    rows = db.execute(
+        stmt.order_by(ExtractionRun.id.desc()).offset(params.offset).limit(params.page_size)
+    ).scalars()
+    return make_page([ExtractionRunOut.model_validate(r) for r in rows], total, params)
 
 
 # -------------------------------------------------------------------------- users

@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     http_timeout_seconds: float = Field(default=30.0, gt=0)
     pipeline_max_extractions_per_run: int = Field(default=15, ge=0)
     pipeline_max_image_searches_per_run: int = Field(default=20, ge=0)
+    pipeline_cron: str = "0 3 1 * *"  # 03:00 UTC on the 1st of each month
     images_target_per_category: int = Field(default=5, ge=1)
 
     # --- API ---

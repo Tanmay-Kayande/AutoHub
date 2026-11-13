@@ -27,12 +27,19 @@ logger = logging.getLogger("autohub.api")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    # The V2 pipeline scheduler (autohub.jobs.scheduler) is added by T-409 and is
-    # started/stopped here once it exists. Until then nothing is scheduled: the
-    # V1 scheduler writes through the V1 models and must not run against V2.
+    scheduler_started = False
     if get_settings().scheduler_enabled:
-        logger.warning("scheduler_enabled is set but the V2 pipeline scheduler is not built yet (T-409)")
-    yield
+        from autohub.jobs.scheduler import start_scheduler
+
+        start_scheduler()
+        scheduler_started = True
+    try:
+        yield
+    finally:
+        if scheduler_started:
+            from autohub.jobs.scheduler import stop_scheduler
+
+            stop_scheduler()
 
 
 def create_app() -> FastAPI:
