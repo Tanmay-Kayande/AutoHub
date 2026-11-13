@@ -64,13 +64,7 @@ def normalize_spec(spec: ExtractedSpec, provenance: Provenance) -> SpecValueInpu
             status = spec.status
             value = False if spec.status == "not_available" else None
         if status is None:
-            # Descriptive text instead of Yes/No ("LED Projector"): the feature is there.
-            if spec.status == "present":
-                base.value_bool = True
-                base.value_text = original
-                base.flags = ("feature_from_text",)
-                base.confidence = CONFIDENCE_FLAGGED
-                return base
+            # Descriptive text instead of Yes/No: the key mapping is too uncertain to record.
             return None
         base.status = status
         base.value_bool = value

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from difflib import SequenceMatcher
@@ -53,6 +54,33 @@ def compact(name: str) -> str:
     return _NON_ALNUM.sub("", name.lower())
 
 
+_WORD = re.compile(r"[a-z0-9+]+")
+_SEATS = re.compile(r"(\d)\s*-?\s*(str|seater|seats?)\b")
+_SYNONYMS = {"seater": "str", "seats": "str", "seat": "str", "automatic": "at", "manual": "mt", "4x4": "4wd"}
+
+
+def name_tokens(name: str) -> tuple[str, ...]:
+    """Order-free identity of a variant name: ``"AX7 TECH 6 STR Diesel AWD AT"`` and
+    ``"AX7 Tech Diesel AT AWD 6-Seater"`` give the same tokens; ``"AX 7 STR"`` and
+    ``"AX7 STR"`` do not."""
+    text = _SEATS.sub(r"\1 str", name.lower())
+    return tuple(sorted(_SYNONYMS.get(w, w) for w in _WORD.findall(text)))
+
+
+def full_variant_name(extracted: ExtractedVariant) -> str:
+    """The printed name plus any powertrain words it lacks ("AX" + "MT" -> "AX MT")."""
+    name = " ".join(extracted.name.split())
+    present = set(name_tokens(name))
+    extra = [
+        part.strip()
+        for part in (extracted.fuel_type, extracted.drivetrain, extracted.transmission)
+        if part and part.strip() and not set(name_tokens(part)) <= present
+    ]
+    for part in extra:
+        present |= set(name_tokens(part))
+    return " ".join([name, *extra])
+
+
 def match_model(candidates: list[str], models: list[VehicleModel]) -> VehicleModel | None:
     """Exact compact-name match first, then the closest name above ``MODEL_MATCH_RATIO``."""
     keys = [compact(c) for c in candidates if c and compact(c)]
@@ -76,6 +104,7 @@ class WriteSummary:
     variants_created: int = 0
     variants_matched: int = 0
     not_applicable_skipped: int = 0
+    ambiguous_variants: int = 0  # same name twice in one extraction: skipped, never merged
     result: ApplyResult = field(default_factory=ApplyResult)
 
 
@@ -124,17 +153,16 @@ def _current_generation(db: Session, model: VehicleModel) -> ModelGeneration:
 
 
 def _resolve_variant(
-    db: Session, generation: ModelGeneration, existing: list[Variant], extracted: ExtractedVariant
+    db: Session, generation: ModelGeneration, existing: list[Variant], extracted: ExtractedVariant, name: str
 ) -> tuple[Variant, bool]:
-    key = compact(extracted.name)
+    slug = slugify(name)
+    tokens = name_tokens(name)
     for variant in existing:
-        if variant.slug == slugify(extracted.name) or compact(variant.name) == key:
+        if variant.slug == slug or name_tokens(variant.name) == tokens:
             _fill_codes(variant, extracted)
             return variant, False
     variant = Variant(
-        generation_id=generation.id,
-        name=extracted.name,
-        slug=unique_slug(extracted.name, {v.slug for v in existing}),
+        generation_id=generation.id, name=name, slug=unique_slug(name, {v.slug for v in existing})
     )
     _fill_codes(variant, extracted)
     db.add(variant)
@@ -189,13 +217,28 @@ def write_extraction(
     summary = WriteSummary(model_id=model.id, model_created=created)
     provenance = Provenance(brochure_version_id=version.id)
 
-    variants = extraction.variants
-    if not variants:
+    names = [full_variant_name(v) for v in extraction.variants]
+    counts = Counter(name_tokens(n) for n in names)
+    variants = [v for v, n in zip(extraction.variants, names, strict=True) if counts[name_tokens(n)] == 1]
+    kept_names = [n for n in names if counts[name_tokens(n)] == 1]
+    summary.ambiguous_variants = len(names) - len(kept_names)
+    if summary.ambiguous_variants:
+        logger.warning(
+            "ambiguous_variants run=%s skipped=%s names=%s",
+            run.id,
+            summary.ambiguous_variants,
+            sorted({n for n in names if counts[name_tokens(n)] > 1}),
+        )
+
+    if not extraction.variants:
         # Only common values: they describe every variant already on file.
         targets = [(v, False) for v in existing]
         common_only = True
     else:
-        targets = [_resolve_variant(db, generation, existing, ev) for ev in variants]
+        targets = [
+            _resolve_variant(db, generation, existing, ev, name)
+            for ev, name in zip(variants, kept_names, strict=True)
+        ]
         common_only = False
 
     for index, (variant, was_created) in enumerate(targets):

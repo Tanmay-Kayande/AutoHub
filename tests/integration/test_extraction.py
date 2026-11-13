@@ -36,7 +36,7 @@ def spec(key: str, value: str, status: str = "present", unit: str | None = None)
 
 
 def variant(
-    name: str, specs: list[dict[str, Any]], fuel: str = "Diesel", trans: str = "6MT"
+    name: str, specs: list[dict[str, Any]], fuel: str | None = None, trans: str | None = None
 ) -> dict[str, Any]:
     return {"name": name, "fuel_type": fuel, "transmission": trans, "drivetrain": None, "specs": specs}
 
@@ -120,7 +120,7 @@ def test_success_records_run_and_writes_specs(db: Session, tmp_path: Path) -> No
             extraction(
                 [
                     variant("LX", [spec("sunroof", "No", "not_available")]),
-                    variant("ZX AT", [spec("sunroof", "Yes")], trans="6AT"),
+                    variant("ZX", [spec("sunroof", "Yes")], fuel="Diesel", trans="AT"),
                 ],
                 common=[spec("length", "4395 mm"), spec("ground_clearance", "209", unit="mm")],
             )
@@ -139,7 +139,7 @@ def test_success_records_run_and_writes_specs(db: Session, tmp_path: Path) -> No
     assert summary.model_created and summary.variants_created == 2
     assert run.specs_written == 6  # 2 common x 2 variants + 1 feature each
 
-    zx = db.execute(select(Variant).where(Variant.name == "ZX AT")).scalar_one()
+    zx = db.execute(select(Variant).where(Variant.name == "ZX Diesel AT")).scalar_one()
     assert zx.fuel_type == "diesel" and zx.transmission_type == "automatic"
     length = value(db, zx.id, "length")
     assert length is not None and length.value_num == Decimal("4395") and length.source_page == 12
@@ -247,10 +247,10 @@ def test_existing_model_is_matched_despite_spacing(db: Session, tmp_path: Path) 
 
 def test_variants_are_matched_by_name_and_codes_are_not_overwritten(db: Session, tmp_path: Path) -> None:
     env = Env(
-        db, tmp_path, [extraction([variant("AX7 L", [spec("airbags", "6")], fuel="Petrol", trans="6AT")])]
+        db, tmp_path, [extraction([variant("AX7 L", [spec("airbags", "6")], fuel="Petrol", trans="AT")])]
     )
     model = make_model(db, env.brand)
-    ax7l = make_variant(db, model, "AX7L", fuel_type="diesel", transmission_type="manual")
+    ax7l = make_variant(db, model, "AX7 L Petrol Automatic", fuel_type="diesel", transmission_type="manual")
     _, summary = env.run()
     assert summary.variants_matched == 1 and summary.variants_created == 0
     db.refresh(ax7l)
@@ -322,3 +322,40 @@ def test_common_only_extraction_applies_to_existing_variants(db: Session, tmp_pa
     assert summary.variants_matched == 2
     assert value(db, a.id, "wheelbase") is not None and value(db, b.id, "wheelbase") is not None
     assert db.execute(select(func.count()).select_from(VehicleModel)).scalar_one() == 1
+
+
+def test_duplicate_names_in_one_extraction_are_skipped_not_merged(db: Session, tmp_path: Path) -> None:
+    env = Env(
+        db,
+        tmp_path,
+        [
+            extraction(
+                [
+                    variant("AX", [spec("max_power", "149 kW")], trans="MT"),
+                    variant("AX", [spec("max_power", "136 kW")], trans="MT"),
+                    variant("AX", [spec("max_power", "149 kW")], trans="AT"),
+                ]
+            )
+        ],
+    )
+    _, summary = env.run()
+    assert summary.ambiguous_variants == 2 and summary.variants_created == 1
+    names = db.execute(select(Variant.name)).scalars().all()
+    assert names == ["AX AT"]
+
+
+def test_powertrain_words_complete_the_name_and_match_existing_order_free(
+    db: Session, tmp_path: Path
+) -> None:
+    env = Env(
+        db,
+        tmp_path,
+        [extraction([variant("AX7 Tech 6-Seater", [spec("airbags", "7")], fuel="Diesel", trans="AT AWD")])],
+    )
+    model = make_model(db, env.brand)
+    target = make_variant(
+        db, model, "AX7 TECH 6 STR Diesel AWD AT", fuel_type="diesel", transmission_type="automatic"
+    )
+    _, summary = env.run()
+    assert summary.variants_matched == 1 and summary.variants_created == 0
+    assert value(db, target.id, "airbags") is not None

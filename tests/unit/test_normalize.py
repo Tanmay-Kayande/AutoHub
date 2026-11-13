@@ -6,7 +6,7 @@ from decimal import Decimal
 
 import pytest
 
-from autohub.ingestion.extraction.prompt import prompt_version, system_prompt
+from autohub.ingestion.extraction.prompt import PROMPT_BASE_VERSION, prompt_version, system_prompt
 from autohub.ingestion.extraction.schema import ExtractedSpec
 from autohub.ingestion.normalize import Provenance, normalize_spec, normalize_specs
 from autohub.ingestion.writer import compact
@@ -86,9 +86,25 @@ def test_features(value: str, status: str, expected_bool: bool | None, expected_
     assert result is not None and result.value_bool is expected_bool and result.status == expected_status
 
 
-def test_descriptive_feature_text_counts_as_present_but_flagged() -> None:
-    result = normalize_spec(item("led_headlamps", "LED Projector"), P)
-    assert result is not None and result.value_bool is True and result.flags == ("feature_from_text",)
+def test_descriptive_feature_text_is_not_recorded() -> None:
+    # The key mapping of free text is too uncertain ("Rear wiper & wash" is not rain-sensing wipers).
+    assert normalize_spec(item("rain_sensing_wipers", "Rear Wiper & Wash"), P) is None
+
+
+def test_variant_name_tokens_and_completion() -> None:
+    from autohub.ingestion.extraction.schema import ExtractedVariant
+    from autohub.ingestion.writer import full_variant_name, name_tokens
+
+    assert name_tokens("AX7 TECH 6 STR Diesel AWD AT") == name_tokens("AX7 Tech Diesel AT AWD 6-Seater")
+    assert name_tokens("AX 7 STR") != name_tokens("AX7 STR")
+    assert name_tokens("AX7 7 STR") != name_tokens("AX7 STR")
+
+    def ev(name: str, fuel: str | None, trans: str | None) -> ExtractedVariant:
+        return ExtractedVariant(name=name, fuel_type=fuel, transmission=trans, drivetrain=None, specs=[])
+
+    assert full_variant_name(ev("AX", None, "MT")) == "AX MT"
+    assert full_variant_name(ev("AX5 Diesel MT", "Diesel", "MT")) == "AX5 Diesel MT"
+    assert full_variant_name(ev("SX(O)  Turbo", "Petrol", "7DCT")) == "SX(O) Turbo Petrol 7DCT"
 
 
 def test_text_spec_and_unknown_or_empty_items() -> None:
@@ -117,4 +133,7 @@ def test_prompt_lists_every_taxonomy_key_and_versions_by_content() -> None:
     for category in TAXONOMY:
         for spec in category.specs:
             assert f"- {spec.key}:" in prompt
-    assert prompt_version().startswith("v2.1-") and len(prompt_version()) == len("v2.1-") + 8
+    assert (
+        prompt_version().startswith(f"{PROMPT_BASE_VERSION}-")
+        and len(prompt_version()) == len(PROMPT_BASE_VERSION) + 9
+    )
