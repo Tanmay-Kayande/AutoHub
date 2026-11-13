@@ -1,0 +1,31 @@
+# Local development services for AutoHub V2.
+# The database is bound to 127.0.0.1 only. Override credentials via environment
+# variables (or a root-level .env file, which is git-ignored) outside local dev.
+name: autohub
+
+services:
+  db:
+    image: pgvector/pgvector:pg18
+    container_name: autohub-db
+    restart: unless-stopped
+    # Run an init process as PID 1. Without it PostgreSQL is PID 1 and adopts
+    # orphans of timed-out healthchecks; it treats an unknown child exiting
+    # non-zero as a backend crash and restarts every connection.
+    init: true
+    environment:
+      POSTGRES_USER: ${AUTOHUB_DB_USER:-autohub}
+      POSTGRES_PASSWORD: ${AUTOHUB_DB_PASSWORD:-autohub_dev_only}
+      POSTGRES_DB: ${AUTOHUB_DB_NAME:-autohub_dev}
+    ports:
+      - "127.0.0.1:${AUTOHUB_DB_PORT:-5433}:5432"
+    volumes:
+      - autohub_pgdata:/var/lib/postgresql
+      - ./deploy/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  autohub_pgdata:
