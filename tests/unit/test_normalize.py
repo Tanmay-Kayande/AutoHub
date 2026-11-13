@@ -137,3 +137,9 @@ def test_prompt_lists_every_taxonomy_key_and_versions_by_content() -> None:
         prompt_version().startswith(f"{PROMPT_BASE_VERSION}-")
         and len(prompt_version()) == len(PROMPT_BASE_VERSION) + 9
     )
+
+
+@pytest.mark.parametrize("raw", ["1635***", "1635 mm#", "1635†"])
+def test_footnote_markers_do_not_block_numbers(raw: str) -> None:
+    result = normalize_spec(item("height", raw, unit="mm"), P)
+    assert result is not None and result.value_num == Decimal("1635") and result.original_value == raw

@@ -8,6 +8,7 @@ refuses to let it replace a good number already on file.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -19,6 +20,8 @@ from autohub.specs.units import parse_at_rpm, parse_feature, parse_quantity
 CONFIDENCE_CLEAN = Decimal("0.90")
 CONFIDENCE_FLAGGED = Decimal("0.60")
 TEXT_LIMIT = 500
+# Footnote markers printed next to figures ("1635***", "209 mm#", "6†").
+_FOOTNOTES = re.compile(r"[*†‡#^]+")
 _RPM_KEYS = frozenset({"max_power_rpm", "max_torque_rpm"})
 # Unitless counts where a bare number is the expected form.
 _DEFAULT_UNITS: dict[str, str] = {
@@ -81,7 +84,7 @@ def normalize_spec(spec: ExtractedSpec, provenance: Provenance) -> SpecValueInpu
     if spec.status != "present":
         base.status = spec.status
         return base
-    text = _text_with_unit(spec)
+    text = _FOOTNOTES.sub("", _text_with_unit(spec)).strip()
     if definition.key in _RPM_KEYS and "@" in text:
         parsed = parse_at_rpm(text)
     else:
