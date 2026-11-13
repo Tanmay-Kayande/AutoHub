@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from functools import lru_cache
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -21,10 +22,17 @@ router = APIRouter(prefix="/search", tags=["search"])
 _limit = Depends(rate_limit("search", limit=60))
 
 
+@lru_cache(maxsize=1)
+def _shared_embedder() -> EmbeddingProvider:
+    # Building the Gemini client costs ~1 s, so one instance serves every request.
+    # A failure is not cached: a key added later is picked up on the next request.
+    return get_embedder()
+
+
 def query_embedder() -> EmbeddingProvider | None:
     """The embedder, or ``None`` when no provider is configured (keyword search still works)."""
     try:
-        return get_embedder()
+        return _shared_embedder()
     except Exception:
         return None
 

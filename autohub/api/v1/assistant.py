@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Iterator
+from functools import lru_cache
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
@@ -29,9 +30,15 @@ _limit = Depends(rate_limit("assistant", limit=20))
 HISTORY_MESSAGES = 6
 
 
+@lru_cache(maxsize=1)
+def _shared_provider() -> LLMProvider:
+    # One client per process (construction costs ~1 s); failures are not cached.
+    return get_llm_provider()
+
+
 def assistant_provider() -> LLMProvider:
     try:
-        return get_llm_provider()
+        return _shared_provider()
     except Exception as exc:
         raise UpstreamUnavailableError("The assistant is not configured.") from exc
 
