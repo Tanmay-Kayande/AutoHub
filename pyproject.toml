@@ -97,5 +97,5 @@ check_untyped_defs = true
 no_implicit_optional = true
 
 [[tool.mypy.overrides]]
-module = ["pgvector.*", "apscheduler.*", "jose.*", "fitz.*", "playwright.*"]
+module = ["pgvector.*", "apscheduler.*", "jose.*", "fitz.*", "pymupdf.*", "playwright.*"]
 ignore_missing_imports = true

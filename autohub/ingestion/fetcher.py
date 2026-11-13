@@ -15,28 +15,24 @@ Not thread-safe: the pipeline makes no parallel requests to one host.
 from __future__ import annotations
 
 import logging
-import random
 import re
 import time
 from collections.abc import Callable
 from types import TracebackType
 from typing import Any, Protocol, cast
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urlsplit
 from urllib.robotparser import RobotFileParser
 
 import requests
 
 from autohub.core.settings import Settings, get_settings
 from autohub.ingestion.adapters.base import AdapterError, host_in_domains
+from autohub.ingestion.retry import get_following_redirects
 
 logger = logging.getLogger(__name__)
 
 MAX_HTML_BYTES = 8 * 1024 * 1024
 MAX_ROBOTS_BYTES = 512 * 1024
-MAX_ATTEMPTS = 3
-MAX_REDIRECTS = 5
-_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
-_REDIRECT_STATUS = frozenset({301, 302, 303, 307, 308})
 
 
 class HttpSession(Protocol):
@@ -117,6 +113,11 @@ class CrawlPolicy:
         self._next_request_at: dict[str, float] = {}
         # host -> parsed rules, or True (allow everything) / False (disallow everything)
         self._robots: dict[str, RobotFileParser | bool] = {}
+
+    @property
+    def session(self) -> HttpSession:
+        """The HTTP session every request of this run goes through."""
+        return self._session
 
     # ------------------------------------------------------------------ rules
     def check_scope(self, url: str) -> None:
@@ -250,63 +251,16 @@ class PolitePageFetcher:
     # ------------------------------------------------------------------ PageFetcher
     def get_html(self, url: str) -> str:
         self._admit(url)
-        current = url
-        for _ in range(MAX_REDIRECTS + 1):
-            response = self._get_with_retry(current)
-            try:
-                status = int(response.status_code)
-                if status in _REDIRECT_STATUS:
-                    location = response.headers.get("Location")
-                    if not location:
-                        raise AdapterError("fetch", current, f"HTTP {status} without a Location header")
-                    target = urljoin(current, location)
-                    # Every hop is held to the same scope and robots rules as the first URL.
-                    try:
-                        self.policy.authorize(target)
-                    except AdapterError as exc:
-                        raise AdapterError(
-                            exc.stage, url, f"redirect to {target} refused: {exc.message}"
-                        ) from exc
-                    current = target
-                    continue
-                if status != 200:
-                    raise AdapterError("fetch", current, f"HTTP {status}")
-                return self._decode(current, response)
-            finally:
-                response.close()
-        raise AdapterError("fetch", url, f"more than {MAX_REDIRECTS} redirects")
-
-    def _get_with_retry(self, url: str) -> Any:
-        """One GET without following redirects; retries transient failures with backoff."""
-        last_error = "no attempt made"
-        for attempt in range(1, MAX_ATTEMPTS + 1):
-            self.policy.wait_for_host(url)
-            try:
-                response = self._session.get(
-                    url,
-                    timeout=self._timeout,
-                    headers={
-                        "User-Agent": self.policy.user_agent,
-                        "Accept": "text/html,application/xhtml+xml",
-                    },
-                    stream=True,
-                    allow_redirects=False,
-                )
-            except requests.exceptions.SSLError as exc:
-                raise AdapterError("tls", url, f"certificate verification failed: {exc}") from exc
-            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
-                last_error = f"{type(exc).__name__}: {exc}"
-            except requests.exceptions.RequestException as exc:
-                raise AdapterError("fetch", url, f"{type(exc).__name__}: {exc}") from exc
-            else:
-                if int(response.status_code) not in _RETRYABLE_STATUS:
-                    return response
-                last_error = f"HTTP {response.status_code}"
-                response.close()
-            if attempt < MAX_ATTEMPTS:
-                logger.warning("fetch_retry url=%s attempt=%s reason=%s", url, attempt, last_error)
-                self._sleep((2 ** (attempt - 1)) + random.uniform(0, 0.5))
-        raise AdapterError("fetch", url, f"gave up after {MAX_ATTEMPTS} attempts: {last_error}")
+        final_url, response = get_following_redirects(
+            self.policy, url, headers={"Accept": "text/html,application/xhtml+xml"}, sleep=self._sleep
+        )
+        try:
+            status = int(response.status_code)
+            if status != 200:
+                raise AdapterError("fetch", final_url, f"HTTP {status}")
+            return self._decode(final_url, response)
+        finally:
+            response.close()
 
     def get_rendered_html(self, url: str) -> str:
         self._admit(url)
