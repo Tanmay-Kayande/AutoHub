@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+/* Design tokens (docs/V2/FRONTEND_DESIGN.md §2). Dark-only by intent. */
+@theme {
+  --color-bg: #0a0a0b;
+  --color-surface: #141416;
+  --color-surface-2: #1c1c20;
+  --color-line: rgb(255 255 255 / 0.08);
+  --color-text: #f4f4f5;
+  --color-muted: #a1a1aa;
+  --color-accent: #e8c27a;
+  --color-good: #4ade80;
+  --color-warn: #fbbf24;
+  --font-display: var(--font-sora), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  background: var(--color-bg);
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
