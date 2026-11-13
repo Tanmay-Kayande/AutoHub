@@ -50,6 +50,9 @@ def _load_builtin_adapters() -> None:
     if _builtins_loaded:
         return
     _builtins_loaded = True
+    from autohub.ingestion.adapters.mahindra import MahindraAdapter
+
+    register(MahindraAdapter)
 
 
 def available_keys() -> list[str]:
