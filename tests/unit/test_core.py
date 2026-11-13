@@ -184,10 +184,25 @@ def test_rate_limit_dependency_returns_429(monkeypatch: pytest.MonkeyPatch) -> N
     blocked = client.get("/api/v1/limited")
     assert blocked.json()["error"]["code"] == "rate_limited"
     assert 1 <= int(blocked.headers["retry-after"]) <= 60
-    # a different caller (different token) has its own budget
-    assert (
-        client.get(
-            "/api/v1/limited", headers={"Authorization": "Bearer someone-elses-token-000000"}
-        ).status_code
-        == 200
-    )
+    # An Authorization header is not verified here, so it must not buy a fresh budget:
+    # otherwise a made-up token per request bypasses the limit (login brute force, paid search).
+    statuses = {
+        client.get("/api/v1/limited", headers={"Authorization": f"Bearer made-up-token-{i:020d}"}).status_code
+        for i in range(5)
+    }
+    assert statuses == {429}
+
+
+@pytest.mark.parametrize(
+    ("overrides", "field"),
+    [({"secret_key": "too-short"}, "secret_key"), ({"algorithm": "none"}, "algorithm")],
+)
+def test_settings_reject_weak_token_signing(overrides: dict[str, str], field: str) -> None:
+    from pydantic import ValidationError
+
+    from autohub.core.settings import Settings
+
+    values = {"database_url": "postgresql://x/y", "secret_key": "k" * 32, **overrides}
+    with pytest.raises(ValidationError) as caught:
+        Settings(_env_file=None, **values)  # type: ignore[call-arg]
+    assert caught.value.errors()[0]["loc"] == (field,)

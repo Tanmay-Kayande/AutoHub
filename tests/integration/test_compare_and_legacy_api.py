@@ -205,3 +205,19 @@ def test_cors_allows_only_configured_origins(client: Any) -> None:
     assert allowed.headers["access-control-allow-origin"] == "http://localhost:3000"
     other = client.get(f"{API}/brands", headers={"Origin": "https://evil.example"})
     assert "access-control-allow-origin" not in other.headers
+
+
+def test_legacy_and_v1_login_share_one_rate_limit_budget(
+    client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from autohub.core import ratelimit
+    from autohub.core.settings import get_settings
+
+    monkeypatch.setattr(get_settings(), "rate_limit_enabled", True)
+    monkeypatch.setattr(ratelimit, "limiter", ratelimit.SlidingWindowLimiter())
+    wrong = {"username": "nobody@example.test", "password": "wrong-password"}
+    codes = [client.post("/login", data=wrong).status_code for _ in range(5)]
+    codes += [client.post("/api/v1/auth/login", data=wrong).status_code for _ in range(5)]
+    assert codes == [401] * 10
+    assert client.post("/login", data=wrong).status_code == 429
+    assert client.post("/api/v1/auth/login", data=wrong).status_code == 429

@@ -49,10 +49,10 @@ limiter = SlidingWindowLimiter()
 
 
 def _client_key(request: Request) -> str:
-    authorization = request.headers.get("authorization", "")
-    if authorization.lower().startswith("bearer "):
-        # Token identity without decoding: enough to separate callers.
-        return "t:" + authorization[-24:]
+    # The client address only. The Authorization header is not verified at this point, so
+    # keying on it would let a caller send a made-up token per request and never be limited.
+    # Behind a reverse proxy, run uvicorn with --proxy-headers and --forwarded-allow-ips set
+    # to the proxy so request.client is the real caller rather than the proxy.
     return "ip:" + (request.client.host if request.client else "unknown")
 
 

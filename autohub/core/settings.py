@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -31,10 +32,11 @@ class Settings(BaseSettings):
 
     # --- required ---
     database_url: str
-    secret_key: SecretStr
+    # HS256 tokens signed with a short key can be brute-forced offline and then forged.
+    secret_key: SecretStr = Field(min_length=32)
 
     # --- auth ---
-    algorithm: str = "HS256"
+    algorithm: Literal["HS256", "HS384", "HS512"] = "HS256"
     access_token_expire_minutes: int = Field(default=60, ge=1)
 
     # --- database pool ---

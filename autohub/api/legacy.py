@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from autohub.api.schemas import SignupIn
 from autohub.api.v1.auth import authenticate, register_user
+from autohub.core.ratelimit import rate_limit
 from autohub.db.models import (
     Brand,
     ModelGeneration,
@@ -211,13 +212,17 @@ def get_status() -> dict[str, str]:
     return {"status": "API is running"}
 
 
-@router.post("/login", response_model=LegacyToken, tags=["legacy"])
+# Same scope as /api/v1/auth, so the legacy paths share one budget with it rather than adding a second.
+_auth_limit = Depends(rate_limit("auth", limit=10))
+
+
+@router.post("/login", response_model=LegacyToken, tags=["legacy"], dependencies=[_auth_limit])
 def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)) -> LegacyToken:
     token = authenticate(db, form.username, form.password)
     return LegacyToken(access_token=token.access_token, token_type=token.token_type)
 
 
-@router.post("/signup", status_code=status.HTTP_201_CREATED, tags=["legacy"])
+@router.post("/signup", status_code=status.HTTP_201_CREATED, tags=["legacy"], dependencies=[_auth_limit])
 def signup(request: LegacySignup, db: Session = Depends(get_db)) -> dict[str, str]:
     register_user(db, SignupIn(**request.model_dump(exclude={"id"})))
     return {"message": f"User {request.name} signed up successfully"}
