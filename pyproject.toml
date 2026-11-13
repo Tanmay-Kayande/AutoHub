@@ -58,18 +58,6 @@ extend-exclude = [
     "autohub/venv",
     "autohub/alembic/versions/045d1b03bb71_initial_postgres_migration.py",
     "frontend",
-    # V1 modules, superseded by V2 and removed in T-901; not reformatted in the meantime.
-    "autohub/automation",
-    "autohub/database",
-    "autohub/model",
-    "autohub/core/config.py",
-    "autohub/api/catalog.py",
-    "autohub/api/login.py",
-    "autohub/api/news.py",
-    "autohub/api/routes.py",
-    "autohub/api/users.py",
-    "db_migration_script.py",
-    "inspect_db.py",
     # Design docs contain illustrative snippets, not code to lint.
     "docs",
 ]
