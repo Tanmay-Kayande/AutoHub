@@ -37,6 +37,7 @@ from autohub.ingestion.adapters.registry import resolve_adapters
 from autohub.ingestion.downloader import BrochureDownloader, DownloadStatus
 from autohub.ingestion.extraction.extractor import BrochureExtractor
 from autohub.ingestion.fetcher import CrawlPolicy, PolitePageFetcher
+from autohub.ingestion.pdf_text import store_pages
 from autohub.ingestion.store import BrochureStore
 from autohub.ingestion.writer import write_extraction
 from autohub.jobs.locks import advisory_lock
@@ -300,6 +301,9 @@ class Pipeline:
                 stats.errors.append({"stage": "download", "brochure_id": brochure.id, "message": str(exc)})
                 continue
             stats.download[result.status.value] += 1
+            if result.status is DownloadStatus.NEW_VERSION and result.version is not None:
+                stats.download["pages_extracted"] += store_pages(db, result.version, self.store)
+                db.commit()
             if result.status in (DownloadStatus.FAILED, DownloadStatus.REJECTED):
                 stats.errors.append(
                     {

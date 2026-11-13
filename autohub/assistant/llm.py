@@ -232,7 +232,7 @@ class GeminiProvider:
                 thinking_config=self._thinking(),
             )
             started = self._clock()
-            response, attempts = self._call(
+            response, attempts = self.call_with_retry(
                 lambda: self._client.models.generate_content(model=self.model, contents=parts, config=config)
             )
             latency_ms = int((self._clock() - started) * 1000)
@@ -282,7 +282,7 @@ class GeminiProvider:
             )
             return stream, next(stream, None)
 
-        (stream, first), _ = self._call(open_stream)
+        (stream, first), _ = self.call_with_retry(open_stream)
         chunk = first
         while chunk is not None:
             text = getattr(chunk, "text", None)
@@ -307,7 +307,7 @@ class GeminiProvider:
         size = path.stat().st_size
         if size <= INLINE_FILE_LIMIT_BYTES:
             return types.Part.from_bytes(data=path.read_bytes(), mime_type="application/pdf"), None
-        remote, _ = self._call(
+        remote, _ = self.call_with_retry(
             lambda: self._client.files.upload(file=str(path), config={"mime_type": "application/pdf"})
         )
         deadline = self._clock() + FILE_ACTIVE_TIMEOUT_SECONDS
@@ -330,7 +330,7 @@ class GeminiProvider:
         except Exception as exc:  # uploads expire after 48 h anyway
             logger.warning("llm_file_delete_failed name=%s error=%s", getattr(remote, "name", "?"), exc)
 
-    def _call(self, operation: Callable[[], Any]) -> tuple[Any, int]:
+    def call_with_retry(self, operation: Callable[[], Any]) -> tuple[Any, int]:
         """Run ``operation`` with retry. Returns (result, attempts used)."""
         last: LLMError | None = None
         for attempt in range(1, self._max_attempts + 1):

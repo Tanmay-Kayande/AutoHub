@@ -129,7 +129,7 @@ def test_full_run_discovers_downloads_extracts_and_records(
     assert run.status == "succeeded", run.stats
     assert run.stats is not None
     assert run.stats["discover"]["testa"] == {"found": 3, "new": 3, "pages": 1, "errors": 0}
-    assert run.stats["download"] == {"new_version": 3}
+    assert run.stats["download"] == {"new_version": 3, "pages_extracted": 3}
     assert run.stats["extract"] == {"pending": 3, "succeeded": 3}
     assert run.finished_at is not None and env.fetchers[0].closed
     brand = db.execute(select(Brand).where(Brand.name == "Testa Pipeline")).scalar_one()
@@ -159,7 +159,7 @@ def test_failing_brochure_does_not_stop_the_others(db: Session, engine: Engine, 
     run = env.run()
     assert run.status == "partial"
     assert run.stats is not None
-    assert run.stats["download"] == {"new_version": 2, "rejected": 1}
+    assert run.stats["download"] == {"new_version": 2, "rejected": 1, "pages_extracted": 2}
     assert run.stats["extract"] == {"pending": 2, "succeeded": 2}
     assert any(e["stage"] == "download" and e["url"] == URLS[1] for e in run.stats["errors"])
 
