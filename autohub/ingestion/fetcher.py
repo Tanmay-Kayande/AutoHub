@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 import time
 from collections.abc import Callable
 from types import TracebackType
@@ -66,6 +67,28 @@ def _read_capped(response: Any, limit: int) -> bytes:
             raise ValueError(f"response larger than {limit} bytes")
         chunks.append(chunk)
     return b"".join(chunks)
+
+
+_CHARSET = re.compile(r"charset\s*=\s*[\"']?([\w.:-]+)", re.IGNORECASE)
+
+
+def _decode_html(body: bytes, content_type: str) -> str:
+    """Decode a page using the charset the server declared, else UTF-8.
+
+    ``requests`` assumes ISO-8859-1 for ``text/*`` responses without a charset,
+    which corrupts the UTF-8 pages most sites actually serve, so its guess is
+    not used. Bytes that are not valid UTF-8 fall back to Windows-1252.
+    """
+    declared = _CHARSET.search(content_type)
+    if declared:
+        try:
+            return body.decode(declared.group(1), errors="replace")
+        except LookupError:
+            pass  # unknown charset name: treat as undeclared
+    try:
+        return body.decode("utf-8")
+    except UnicodeDecodeError:
+        return body.decode("cp1252", errors="replace")
 
 
 class CrawlPolicy:
@@ -329,11 +352,7 @@ class PolitePageFetcher:
             raise AdapterError("fetch", url, str(exc)) from exc
         except requests.exceptions.RequestException as exc:
             raise AdapterError("fetch", url, f"{type(exc).__name__}: {exc}") from exc
-        encoding = getattr(response, "encoding", None) or "utf-8"
-        try:
-            return body.decode(encoding, errors="replace")
-        except LookupError:
-            return body.decode("utf-8", errors="replace")
+        return _decode_html(body, str((getattr(response, "headers", None) or {}).get("Content-Type", "")))
 
 
 class PlaywrightRenderer:

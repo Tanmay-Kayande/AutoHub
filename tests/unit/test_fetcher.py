@@ -345,3 +345,27 @@ def test_browser_certificate_error_is_reported_as_tls() -> None:
     with pytest.raises(AdapterError) as excinfo:
         fetcher.get_rendered_html(f"{HOST}/suv")
     assert excinfo.value.stage == "tls"
+
+
+@pytest.mark.parametrize(
+    ("content_type", "body", "expected"),
+    [
+        (
+            "text/html",
+            "Price : ₹ 5.59 Lakh".encode(),
+            "Price : ₹ 5.59 Lakh",
+        ),  # no charset: UTF-8, not Latin-1
+        ("text/html; charset=UTF-8", "café".encode(), "café"),
+        ('text/html; charset="iso-8859-1"', "café".encode("latin-1"), "café"),  # declared charset wins
+        ("text/html", "café".encode("cp1252"), "café"),  # undeclared and not UTF-8: Windows-1252
+        ("text/html; charset=no-such-charset", "₹".encode(), "₹"),  # unknown name: as undeclared
+        ("", b"plain", "plain"),
+    ],
+)
+def test_html_is_decoded_with_declared_charset_else_utf8(
+    content_type: str, body: bytes, expected: str
+) -> None:
+    # requests would report ISO-8859-1 for a bare "text/html"; that guess must not be used.
+    response = FakeResponse(200, body, headers={"Content-Type": content_type}, encoding="ISO-8859-1")
+    fetcher, _ = make_fetcher(FakeSession({f"{HOST}/a": [response]}), delay=0.0)
+    assert fetcher.get_html(f"{HOST}/a") == expected
