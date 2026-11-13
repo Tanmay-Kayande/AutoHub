@@ -1,0 +1,1332 @@
+{
+  "started_at": "2026-11-12T17:39:13+00:00",
+  "source_path": "C:\\Backup\\Project\\Project-1\\AutoHub\\autohub.db",
+  "source_sha256": "7e731edaf99270bd22194dba036f0be1e55acf844163bcb9f067251e917fe3df",
+  "target": "127.0.0.1:5433/autohub_dev",
+  "dry_run": false,
+  "resume": false,
+  "backup_path": "C:\\Backup\\Project\\Project-1\\AutoHub\\backups\\autohub.db.20261112T173913Z.7e731edaf992.bak",
+  "source_counts": {
+    "users": 1,
+    "car_brands": 2,
+    "car_models": 6,
+    "car_variants": 45,
+    "car_specs": 45,
+    "car_images": 64,
+    "news": 0,
+    "news_images": 0
+  },
+  "target_counts": {
+    "users": 1,
+    "brands": 2,
+    "vehicle_models": 6,
+    "model_generations": 6,
+    "variants": 45,
+    "vehicle_images": 64,
+    "news": 0,
+    "news_images": 0,
+    "variant_specs": 259
+  },
+  "inserted": {
+    "users": 1,
+    "brands": 2,
+    "vehicle_models": 6,
+    "model_generations": 6,
+    "variants": 45,
+    "variant_specs": 259,
+    "vehicle_images": 64,
+    "news": 0,
+    "news_images": 0
+  },
+  "skipped_existing": {
+    "users": 0,
+    "brands": 0,
+    "vehicle_models": 0,
+    "model_generations": 0,
+    "variants": 0,
+    "variant_specs": 0,
+    "vehicle_images": 0,
+    "news": 0,
+    "news_images": 0
+  },
+  "flags": [
+    {
+      "table": "car_models",
+      "id": 1,
+      "flag": "legacy_unverified",
+      "detail": "body_type='SUV'"
+    },
+    {
+      "table": "car_models",
+      "id": 2,
+      "flag": "legacy_unverified",
+      "detail": "body_type='SUV'"
+    },
+    {
+      "table": "car_models",
+      "id": 3,
+      "flag": "legacy_unverified",
+      "detail": "body_type='SUV'"
+    },
+    {
+      "table": "car_models",
+      "id": 4,
+      "flag": "legacy_unverified",
+      "detail": "body_type='SUV'"
+    },
+    {
+      "table": "car_models",
+      "id": 5,
+      "flag": "legacy_unverified",
+      "detail": "body_type='SUV'"
+    },
+    {
+      "table": "car_models",
+      "id": 6,
+      "flag": "legacy_unverified",
+      "detail": "body_type='SUV'"
+    },
+    {
+      "table": "car_specs",
+      "id": 1,
+      "flag": "unit_assumed",
+      "detail": "engine_displacement: '2184.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 1,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '97 kW @ 3750 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 1,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '300 Nm @ 1600-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 1,
+      "flag": "range",
+      "detail": "max_torque_rpm: '300 Nm @ 1600-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 2,
+      "flag": "unit_assumed",
+      "detail": "engine_displacement: '2184.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 2,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '97 kW @ 3750 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 2,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '300 Nm @ 1600-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 2,
+      "flag": "range",
+      "detail": "max_torque_rpm: '300 Nm @ 1600-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 3,
+      "flag": "reclassified_from_mileage",
+      "detail": "ev_range: '456.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 3,
+      "flag": "unit_assumed",
+      "detail": "ev_range: '456.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 4,
+      "flag": "reclassified_from_mileage",
+      "detail": "ev_range: '456.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 4,
+      "flag": "unit_assumed",
+      "detail": "ev_range: '456.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 5,
+      "flag": "unit_assumed",
+      "detail": "engine_displacement: '1497.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 5,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '90.2 kW @ 3500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 5,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '300 Nm @ 1750-2500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 5,
+      "flag": "range",
+      "detail": "max_torque_rpm: '300 Nm @ 1750-2500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 6,
+      "flag": "unit_assumed",
+      "detail": "engine_displacement: '1497.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 6,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '90.2 kW @ 3500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 6,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '300 Nm @ 1750-2500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 6,
+      "flag": "range",
+      "detail": "max_torque_rpm: '300 Nm @ 1750-2500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 7,
+      "flag": "unit_assumed",
+      "detail": "engine_displacement: '1497.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 7,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '90.2 kW @ 3500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 7,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '300 Nm @ 1750-2500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 7,
+      "flag": "range",
+      "detail": "max_torque_rpm: '300 Nm @ 1750-2500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 8,
+      "flag": "unit_assumed",
+      "detail": "engine_displacement: '1497.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 8,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '87.2 kW @ 3500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 8,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '300 Nm @ 1750-2500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 8,
+      "flag": "range",
+      "detail": "max_torque_rpm: '300 Nm @ 1750-2500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 9,
+      "flag": "unit_assumed",
+      "detail": "engine_displacement: '1497.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 9,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '87.2 kW @ 3500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 9,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '300 Nm @ 1750-2500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 9,
+      "flag": "range",
+      "detail": "max_torque_rpm: '300 Nm @ 1750-2500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 10,
+      "flag": "unit_assumed",
+      "detail": "engine_displacement: '2184.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 10,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '97 kW @ 3750 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 10,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '300 Nm @ 1600-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 10,
+      "flag": "range",
+      "detail": "max_torque_rpm: '300 Nm @ 1600-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 11,
+      "flag": "unit_assumed",
+      "detail": "engine_displacement: '1997.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 11,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '112 kW @ 5000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 11,
+      "flag": "multi_value",
+      "detail": "max_torque: '300 Nm @ 1250-3000 (with MT) / 320 Nm @ 1500-3000 (with AT)'"
+    },
+    {
+      "table": "car_specs",
+      "id": 12,
+      "flag": "unit_assumed",
+      "detail": "engine_displacement: '1497.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 12,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '87.2 kW @ 3500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 12,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '300 Nm @ 1750-2500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 12,
+      "flag": "range",
+      "detail": "max_torque_rpm: '300 Nm @ 1750-2500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 13,
+      "flag": "unit_assumed",
+      "detail": "engine_displacement: '2184.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 13,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '97 kW @ 3750 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 13,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '300 Nm @ 1600-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 13,
+      "flag": "range",
+      "detail": "max_torque_rpm: '300 Nm @ 1600-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 14,
+      "flag": "unit_assumed",
+      "detail": "engine_displacement: '1997.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 14,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '112 kW @ 5000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 14,
+      "flag": "multi_value",
+      "detail": "max_torque: '300 Nm @ 1250-3000 (with MT) / 320 Nm @ 1500-3000 (with AT)'"
+    },
+    {
+      "table": "car_specs",
+      "id": 15,
+      "flag": "unit_assumed",
+      "detail": "engine_displacement: '1493.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 15,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '73.5 kW @ 3750 rpm'"
+    },
+    {
+      "table": "car_specs",
+      "id": 15,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '260 Nm @ 1750 - 2250 rpm'"
+    },
+    {
+      "table": "car_specs",
+      "id": 15,
+      "flag": "range",
+      "detail": "max_torque_rpm: '260 Nm @ 1750 - 2250 rpm'"
+    },
+    {
+      "table": "car_specs",
+      "id": 16,
+      "flag": "unit_assumed",
+      "detail": "engine_displacement: '1493.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 16,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '73.5 kW @ 3750 rpm'"
+    },
+    {
+      "table": "car_specs",
+      "id": 16,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '260 Nm @ 1750 - 2250 rpm'"
+    },
+    {
+      "table": "car_specs",
+      "id": 16,
+      "flag": "range",
+      "detail": "max_torque_rpm: '260 Nm @ 1750 - 2250 rpm'"
+    },
+    {
+      "table": "car_specs",
+      "id": 17,
+      "flag": "unit_assumed",
+      "detail": "engine_displacement: '1493.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 17,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '73.5 kW @ 3750 rpm'"
+    },
+    {
+      "table": "car_specs",
+      "id": 17,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '260 Nm @ 1750 - 2250 rpm'"
+    },
+    {
+      "table": "car_specs",
+      "id": 17,
+      "flag": "range",
+      "detail": "max_torque_rpm: '260 Nm @ 1750 - 2250 rpm'"
+    },
+    {
+      "table": "car_specs",
+      "id": 18,
+      "flag": "unit_assumed",
+      "detail": "engine_displacement: '1493.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 18,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '73.5 kW @ 3750 rpm'"
+    },
+    {
+      "table": "car_specs",
+      "id": 18,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '260 Nm @ 1750 - 2250 rpm'"
+    },
+    {
+      "table": "car_specs",
+      "id": 18,
+      "flag": "range",
+      "detail": "max_torque_rpm: '260 Nm @ 1750 - 2250 rpm'"
+    },
+    {
+      "table": "car_specs",
+      "id": 19,
+      "flag": "unit_assumed",
+      "detail": "engine_displacement: '1493.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 19,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '73.5 kW @ 3750 rpm'"
+    },
+    {
+      "table": "car_specs",
+      "id": 19,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '260 Nm @ 1750 - 2250 rpm'"
+    },
+    {
+      "table": "car_specs",
+      "id": 19,
+      "flag": "range",
+      "detail": "max_torque_rpm: '260 Nm @ 1750 - 2250 rpm'"
+    },
+    {
+      "table": "car_specs",
+      "id": 20,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 20,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '149.2kW @5000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 20,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 20,
+      "flag": "range",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 21,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 21,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '149.2kW @5000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 21,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 21,
+      "flag": "range",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 22,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 22,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '149.2kW @5000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 22,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 22,
+      "flag": "range",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 23,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 23,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '149.2kW @5000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 23,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 23,
+      "flag": "range",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 24,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.2'"
+    },
+    {
+      "table": "car_specs",
+      "id": 24,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '136kW @3500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 24,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '420 Nm @ 1600-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 24,
+      "flag": "range",
+      "detail": "max_torque_rpm: '420 Nm @ 1600-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 25,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.2'"
+    },
+    {
+      "table": "car_specs",
+      "id": 25,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '136kW @3500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 25,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 25,
+      "flag": "range",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 26,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 26,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '149.2kW @5000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 26,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 26,
+      "flag": "range",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 27,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 27,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '149.2kW @5000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 27,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 27,
+      "flag": "range",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 28,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.2'"
+    },
+    {
+      "table": "car_specs",
+      "id": 28,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '136kW @3500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 28,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '420 Nm @ 1600-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 28,
+      "flag": "range",
+      "detail": "max_torque_rpm: '420 Nm @ 1600-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 29,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.2'"
+    },
+    {
+      "table": "car_specs",
+      "id": 29,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '136kW @3500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 29,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 29,
+      "flag": "range",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 30,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 30,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '149.2kW @5000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 30,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 30,
+      "flag": "range",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 31,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 31,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '149.2kW @5000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 31,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 31,
+      "flag": "range",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 32,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.2'"
+    },
+    {
+      "table": "car_specs",
+      "id": 32,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '136kW @3500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 32,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '420 Nm @ 1600-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 32,
+      "flag": "range",
+      "detail": "max_torque_rpm: '420 Nm @ 1600-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 33,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.2'"
+    },
+    {
+      "table": "car_specs",
+      "id": 33,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '136kW @3500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 33,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 33,
+      "flag": "range",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 34,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 34,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '149.2kW @5000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 34,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 34,
+      "flag": "range",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 35,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.2'"
+    },
+    {
+      "table": "car_specs",
+      "id": 35,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '136kW @3500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 35,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 35,
+      "flag": "range",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 36,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.2'"
+    },
+    {
+      "table": "car_specs",
+      "id": 36,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '136kW @3500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 36,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 36,
+      "flag": "range",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 37,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 37,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '149.2kW @5000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 37,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 37,
+      "flag": "range",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 38,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.2'"
+    },
+    {
+      "table": "car_specs",
+      "id": 38,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '136kW @3500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 38,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 38,
+      "flag": "range",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 39,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.2'"
+    },
+    {
+      "table": "car_specs",
+      "id": 39,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '136kW @3500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 39,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 39,
+      "flag": "range",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 40,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 40,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '149.2kW @5000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 40,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 40,
+      "flag": "range",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 41,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.2'"
+    },
+    {
+      "table": "car_specs",
+      "id": 41,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '136kW @3500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 41,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 41,
+      "flag": "range",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 42,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.2'"
+    },
+    {
+      "table": "car_specs",
+      "id": 42,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '136kW @3500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 42,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 42,
+      "flag": "range",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 43,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.0'"
+    },
+    {
+      "table": "car_specs",
+      "id": 43,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '149.2kW @5000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 43,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 43,
+      "flag": "range",
+      "detail": "max_torque_rpm: '380 Nm @ 1750-3000 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 44,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.2'"
+    },
+    {
+      "table": "car_specs",
+      "id": 44,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '136kW @3500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 44,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 44,
+      "flag": "range",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 45,
+      "flag": "unit_inferred_litres",
+      "detail": "engine_displacement: '2.2'"
+    },
+    {
+      "table": "car_specs",
+      "id": 45,
+      "flag": "derived_from_combined_field",
+      "detail": "max_power_rpm: '136kW @3500 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 45,
+      "flag": "derived_from_combined_field",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    },
+    {
+      "table": "car_specs",
+      "id": 45,
+      "flag": "range",
+      "detail": "max_torque_rpm: '450 Nm @ 1750-2800 r/min'"
+    }
+  ],
+  "possible_duplicate_variants": [
+    {
+      "model_id": 4,
+      "variant_ids": [
+        10,
+        13
+      ],
+      "names": [
+        "LXT Diesel (mHawk 130 CRDe)",
+        "LXT mHawk 130 CRDe Diesel MT/AT 4WD"
+      ],
+      "token_overlap": 0.62
+    },
+    {
+      "model_id": 4,
+      "variant_ids": [
+        11,
+        14
+      ],
+      "names": [
+        "LXT Petrol (mStallion 150 TGDi)",
+        "LXT mStallion 150 TGDi Petrol MT/AT"
+      ],
+      "token_overlap": 0.71
+    },
+    {
+      "model_id": 6,
+      "variant_ids": [
+        35,
+        36
+      ],
+      "names": [
+        "AX7 TECH 6 STR Diesel AT",
+        "AX7 TECH 6 STR Diesel AWD AT"
+      ],
+      "token_overlap": 0.86
+    },
+    {
+      "model_id": 6,
+      "variant_ids": [
+        38,
+        39
+      ],
+      "names": [
+        "AX7 TECH 7 STR Diesel AT",
+        "AX7 TECH 7 STR Diesel AWD AT"
+      ],
+      "token_overlap": 0.86
+    },
+    {
+      "model_id": 6,
+      "variant_ids": [
+        41,
+        42
+      ],
+      "names": [
+        "AX7 LUXURY 6 STR Diesel AT",
+        "AX7 LUXURY 6 STR Diesel AWD AT"
+      ],
+      "token_overlap": 0.86
+    },
+    {
+      "model_id": 6,
+      "variant_ids": [
+        44,
+        45
+      ],
+      "names": [
+        "AX7 LUXURY 7 STR Diesel AT",
+        "AX7 LUXURY 7 STR Diesel AWD AT"
+      ],
+      "token_overlap": 0.86
+    }
+  ],
+  "unmapped": [
+    {
+      "table": "car_variants",
+      "id": 10,
+      "field": "transmission",
+      "value": "6-Speed Manual / 6-Speed Torque Converter Automatic, Manual Shift Part-Time 4WD with High & Low Reduction Gear"
+    },
+    {
+      "table": "car_variants",
+      "id": 11,
+      "field": "transmission",
+      "value": "6-Speed Manual / 6-Speed Torque Converter Automatic, Manual Shift Part-Time 4WD with High & Low Reduction Gear (with MT & AT) or Rear Wheel Drive - RWD (with AT)"
+    },
+    {
+      "table": "car_variants",
+      "id": 13,
+      "field": "transmission",
+      "value": "6-Speed Manual / 6-Speed Torque Converter Automatic"
+    },
+    {
+      "table": "car_variants",
+      "id": 14,
+      "field": "transmission",
+      "value": "6-Speed Manual / 6-Speed Torque Converter Automatic"
+    }
+  ],
+  "checks": [
+    {
+      "name": "row count: users",
+      "passed": true,
+      "detail": "source=1 target=1"
+    },
+    {
+      "name": "row count: brands",
+      "passed": true,
+      "detail": "source=2 target=2"
+    },
+    {
+      "name": "row count: vehicle_models",
+      "passed": true,
+      "detail": "source=6 target=6"
+    },
+    {
+      "name": "row count: model_generations",
+      "passed": true,
+      "detail": "source=6 target=6"
+    },
+    {
+      "name": "row count: variants",
+      "passed": true,
+      "detail": "source=45 target=45"
+    },
+    {
+      "name": "row count: vehicle_images",
+      "passed": true,
+      "detail": "source=64 target=64"
+    },
+    {
+      "name": "row count: news",
+      "passed": true,
+      "detail": "source=0 target=0"
+    },
+    {
+      "name": "row count: news_images",
+      "passed": true,
+      "detail": "source=0 target=0"
+    },
+    {
+      "name": "primary keys preserved",
+      "passed": true,
+      "detail": "every source id exists in the target"
+    },
+    {
+      "name": "model name and brand equal per id",
+      "passed": true,
+      "detail": "mismatches=[]"
+    },
+    {
+      "name": "variant -> model relationships",
+      "passed": true,
+      "detail": "mismatches=[]"
+    },
+    {
+      "name": "variant names equal per id",
+      "passed": true,
+      "detail": "mismatches=[]"
+    },
+    {
+      "name": "raw fuel/transmission text preserved verbatim",
+      "passed": true,
+      "detail": "mismatches=[]"
+    },
+    {
+      "name": "image -> model relationships and URLs",
+      "passed": true,
+      "detail": "mismatches=[]"
+    },
+    {
+      "name": "every V1 spec value preserved verbatim",
+      "passed": true,
+      "detail": "expected_values=175 missing=[]"
+    },
+    {
+      "name": "password hashes identical",
+      "passed": true,
+      "detail": "mismatches=[]"
+    },
+    {
+      "name": "no orphaned rows",
+      "passed": true,
+      "detail": "{\"variants without generation\": 0, \"specs without variant\": 0, \"images without model\": 0, \"models without generation\": 0}"
+    },
+    {
+      "name": "sequences ahead of max(id)",
+      "passed": true,
+      "detail": "behind=[]"
+    },
+    {
+      "name": "source SQLite file unchanged",
+      "passed": true,
+      "detail": "sha256=7e731edaf99270bd\u2026"
+    }
+  ],
+  "outcome": "SUCCESS \u2014 committed"
+}
