@@ -470,3 +470,58 @@ class ExtractionRunOut(ORMModel):
     unknown_keys: int | None
     started_at: datetime
     finished_at: datetime | None
+
+
+# -------------------------------------------------------------------------- search
+class SearchHitOut(BaseModel):
+    entity_type: str
+    entity_id: int
+    chunk_index: int
+    content: str
+    metadata: dict[str, Any]
+    brand_id: int | None
+    model_id: int | None
+    variant_id: int | None
+    score: float
+    sources: list[str]
+
+
+class SearchOut(BaseModel):
+    query: str
+    mode: str
+    degraded: bool = Field(
+        description="true when the semantic leg was unavailable and only keyword results are shown"
+    )
+    items: list[SearchHitOut]
+
+
+class StructuredValueOut(BaseModel):
+    display: str
+    value_num: Num | None
+    value_bool: bool | None
+    status: str
+    source_type: str
+    brochure_version_id: int | None
+    source_page: int | None
+
+
+class StructuredRowOut(BaseModel):
+    variant_id: int
+    variant: str
+    model_id: int
+    model: str
+    model_slug: str
+    brand: str
+    brand_slug: str
+    fuel_type: str | None
+    transmission_type: str | None
+    price_ex_showroom: Num | None
+    values: dict[str, StructuredValueOut]
+
+
+class StructuredOut(BaseModel):
+    total_matched: int
+    missing_value_counts: dict[str, int] = Field(
+        description="per spec key: eligible variants excluded because they have no value"
+    )
+    items: list[StructuredRowOut]
