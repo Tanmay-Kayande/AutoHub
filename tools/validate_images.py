@@ -29,11 +29,12 @@ def main(argv: list[str] | None = None) -> int:
     db = get_session_factory()()
     try:
         stats = validate_pending(db, ImageValidator(), statuses=statuses)
-        counts = dict(
-            db.execute(
+        counts: dict[str, int] = {
+            status: int(n)
+            for status, n in db.execute(
                 select(VehicleImage.validation_status, func.count()).group_by(VehicleImage.validation_status)
-            ).all()
-        )
+            )
+        }
         primaries = db.execute(select(func.count()).where(VehicleImage.is_primary.is_(True))).scalar_one()
     finally:
         db.close()
