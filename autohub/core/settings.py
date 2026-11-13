@@ -47,7 +47,7 @@ class Settings(BaseSettings):
 
     # --- LLM / embeddings ---
     llm_provider: str = "gemini"
-    llm_model: str = "gemini-2.5-flash"
+    llm_model: str = "gemini-3.5-flash-lite"  # assistant; own free-tier quota, separate from extraction
     extraction_model: str = "gemini-2.5-flash"
     llm_timeout_seconds: float = Field(default=180.0, gt=0)
     llm_max_attempts: int = Field(default=4, ge=1)

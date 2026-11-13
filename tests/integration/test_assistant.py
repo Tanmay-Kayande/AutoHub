@@ -76,6 +76,11 @@ def test_names_resolve_by_spacing_and_typos(db: Session, cat: dict[str, Any]) ->
     assert r.variant_ids == [cat["ax7"].id]
 
 
+def test_brand_prefixed_model_names_resolve(db: Session, cat: dict[str, Any]) -> None:
+    r = resolve(db, q(plan(models=["Hyundai Creta"], variants=["SX(O)"])), AssistantContext())
+    assert r.model_ids == [cat["creta"].id] and r.variant_ids == [cat["sx"].id] and r.unresolved == []
+
+
 def test_unknown_names_and_keys_are_reported(db: Session, cat: dict[str, Any]) -> None:
     r = resolve(
         db,

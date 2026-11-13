@@ -77,6 +77,7 @@ def _match_name(db: Session, model: Any, name: str, extra: Any = None) -> tuple[
 
 def resolve(db: Session, plan: QueryPlan, context: AssistantContext) -> ResolvedPlan:
     resolved = ResolvedPlan(plan=plan)
+    plan_model_names: list[str] = []
 
     for name in plan.brands:
         brand, close = _match_name(db, Brand, name)
@@ -85,8 +86,19 @@ def resolve(db: Session, plan: QueryPlan, context: AssistantContext) -> Resolved
         else:
             resolved.unresolved.append(name)
             resolved.suggestions[name] = close
+    brand_names = {b.name.lower(): b.id for b in db.execute(select(Brand)).scalars()}
+    for raw in plan.models:
+        # "Hyundai i20" -> brand Hyundai + model "i20".
+        name = raw
+        for brand_name, brand_id in brand_names.items():
+            if raw.lower().startswith(brand_name + " "):
+                name = raw[len(brand_name) + 1 :].strip()
+                if brand_id not in resolved.brand_ids:
+                    resolved.brand_ids.append(brand_id)
+                break
+        plan_model_names.append(name)
     brand_scope = VehicleModel.brand_id.in_(resolved.brand_ids) if resolved.brand_ids else None
-    for name in plan.models:
+    for name in plan_model_names:
         model, close = _match_name(db, VehicleModel, name, brand_scope)
         if model is None and brand_scope is not None:
             model, close = _match_name(db, VehicleModel, name)
