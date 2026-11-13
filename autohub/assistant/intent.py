@@ -113,6 +113,17 @@ def resolve(db: Session, plan: QueryPlan, context: AssistantContext) -> Resolved
             wanted = set(name_tokens(name))
             # A variant matches when its name contains every word the user gave ("AX7 diesel AT").
             matches = [v for v in candidates if wanted and wanted <= set(name_tokens(v.name))]
+            if not matches and wanted:
+                # Otherwise the single clearly best word overlap (Jaccard), e.g. extra words from the planner.
+                scored = sorted(
+                    (
+                        (len(wanted & set(name_tokens(v.name))) / len(wanted | set(name_tokens(v.name))), v)
+                        for v in candidates
+                    ),
+                    key=lambda pair: -pair[0],
+                )
+                if scored and scored[0][0] >= 0.5 and (len(scored) == 1 or scored[0][0] > scored[1][0]):
+                    matches = [scored[0][1]]
             if matches:
                 resolved.variant_ids.extend(v.id for v in matches if v.id not in resolved.variant_ids)
             else:

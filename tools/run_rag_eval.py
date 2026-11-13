@@ -62,20 +62,16 @@ def build_items(db: Session, limit: int) -> list[EvalItem]:
     items: list[EvalItem] = []
     top = run_structured(
         db,
-        StructuredQuery.model_validate(
-            {
-                "filters": {"body_type": ["suv"]},
-                "sort": {"key": "ground_clearance"},
-                "group_by": "model",
-                "limit": 1,
-            }
-        ),
+        StructuredQuery.model_validate({"sort": {"key": "max_power"}, "group_by": "model", "limit": 1}),
     )
     if top.rows:
         row = top.rows[0]
         items.append(
             EvalItem(
-                "ranking", "Which SUV has the highest ground clearance?", "ranking", expect_value=row.model
+                "ranking",
+                "Which car in the catalogue has the most powerful engine?",
+                "ranking",
+                expect_value=row.model,
             )
         )
 

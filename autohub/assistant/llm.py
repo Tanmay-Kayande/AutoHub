@@ -297,7 +297,8 @@ class GeminiProvider:
     def _thinking(self) -> Any:
         from google.genai import types
 
-        if self._thinking_budget is None:
+        # Only Gemini 2.5 accepts a thinking budget; 3.x models reject it (HTTP 400).
+        if self._thinking_budget is None or not self.model.startswith("gemini-2.5"):
             return None
         return types.ThinkingConfig(thinking_budget=self._thinking_budget)
 

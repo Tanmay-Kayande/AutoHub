@@ -12,7 +12,7 @@ from tools.run_rag_eval import EvalItem, build_items, report, score
 
 def test_items_come_from_catalogue_and_scoring_works(db: Session) -> None:
     model = make_model(db, make_brand(db, "Mahindra"), "XUV 3XO")
-    make_variant(db, model, "AX7", specs={"ground_clearance": 201, "airbags": 6})
+    make_variant(db, model, "AX7", specs={"max_power": 96, "airbags": 6})
     items = build_items(db, 20)
     kinds = [i.kind for i in items]
     assert kinds[0] == "ranking" and items[0].expect_value == "XUV 3XO"

@@ -97,6 +97,6 @@ def normalize_body_type(raw: str | None) -> str | None:
     if text in _BODY_TYPES:
         return _BODY_TYPES[text]
     for needle, code in _BODY_TYPES.items():
-        if re.search(rf"\b{re.escape(needle)}\b", text):
+        if re.search(rf"\b{re.escape(needle)}(e?s)?\b", text):  # "compact SUVs"
             return code
     return None

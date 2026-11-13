@@ -106,7 +106,7 @@ def make(outcomes: list[Any], **kwargs: Any) -> tuple[GeminiProvider, FakeModels
     models = FakeModels(outcomes)
     sleeps: list[float] = []
     client = SimpleNamespace(models=models, files=FakeFiles())
-    provider = GeminiProvider(model="gemini-test", client=client, sleep=sleeps.append, **kwargs)
+    provider = GeminiProvider(model="gemini-2.5-test", client=client, sleep=sleeps.append, **kwargs)
     return provider, models, sleeps
 
 
@@ -251,3 +251,10 @@ def test_fake_provider_round_trip() -> None:
 
 def test_parse_structured_accepts_unspecified_finish() -> None:
     assert parse_structured(Answer, '{"name":"x","count":3}', None).count == 3
+
+
+def test_thinking_budget_is_only_sent_to_gemini_2_5() -> None:
+    client = SimpleNamespace(models=FakeModels([response('{"name": "x", "count": 1}')]), files=FakeFiles())
+    provider = GeminiProvider(model="gemini-3.5-flash-lite", client=client)
+    provider.generate_structured(system="s", prompt="p", schema=Answer)
+    assert client.models.calls[0]["config"].thinking_config is None

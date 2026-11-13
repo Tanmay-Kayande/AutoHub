@@ -156,9 +156,9 @@ def _resolve_variant(
     db: Session, generation: ModelGeneration, existing: list[Variant], extracted: ExtractedVariant, name: str
 ) -> tuple[Variant, bool]:
     slug = slugify(name)
-    tokens = name_tokens(name)
+    forms = {name_tokens(name), name_tokens(full_variant_name(extracted))}
     for variant in existing:
-        if variant.slug == slug or name_tokens(variant.name) == tokens:
+        if variant.slug == slug or name_tokens(variant.name) in forms:
             _fill_codes(variant, extracted)
             return variant, False
     variant = Variant(
@@ -217,7 +217,12 @@ def write_extraction(
     summary = WriteSummary(model_id=model.id, model_created=created)
     provenance = Provenance(brochure_version_id=version.id)
 
-    names = [full_variant_name(v) for v in extraction.variants]
+    # Names are kept as printed; powertrain words are added only where printed names repeat.
+    printed = Counter(name_tokens(v.name) for v in extraction.variants)
+    names = [
+        full_variant_name(v) if printed[name_tokens(v.name)] > 1 else " ".join(v.name.split())
+        for v in extraction.variants
+    ]
     counts = Counter(name_tokens(n) for n in names)
     variants = [v for v, n in zip(extraction.variants, names, strict=True) if counts[name_tokens(n)] == 1]
     kept_names = [n for n in names if counts[name_tokens(n)] == 1]

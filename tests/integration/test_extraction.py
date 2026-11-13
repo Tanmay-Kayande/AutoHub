@@ -139,7 +139,7 @@ def test_success_records_run_and_writes_specs(db: Session, tmp_path: Path) -> No
     assert summary.model_created and summary.variants_created == 2
     assert run.specs_written == 6  # 2 common x 2 variants + 1 feature each
 
-    zx = db.execute(select(Variant).where(Variant.name == "ZX Diesel AT")).scalar_one()
+    zx = db.execute(select(Variant).where(Variant.name == "ZX")).scalar_one()
     assert zx.fuel_type == "diesel" and zx.transmission_type == "automatic"
     length = value(db, zx.id, "length")
     assert length is not None and length.value_num == Decimal("4395") and length.source_page == 12
@@ -359,3 +359,26 @@ def test_powertrain_words_complete_the_name_and_match_existing_order_free(
     _, summary = env.run()
     assert summary.variants_matched == 1 and summary.variants_created == 0
     assert value(db, target.id, "airbags") is not None
+
+
+def test_unique_printed_names_are_kept_and_completed_names_still_match(db: Session, tmp_path: Path) -> None:
+    env = Env(
+        db,
+        tmp_path,
+        [
+            extraction(
+                [
+                    variant(
+                        "1.2 Kappa MT Sportz", [spec("airbags", "6")], fuel="Petrol", trans="5-speed manual"
+                    )
+                ]
+            )
+        ],
+    )
+    model = make_model(db, env.brand)
+    older = make_variant(
+        db, model, "1.2 Kappa MT Sportz Petrol 5-speed manual"
+    )  # name written by the earlier rule
+    _, summary = env.run()
+    assert summary.variants_matched == 1 and summary.variants_created == 0
+    assert value(db, older.id, "airbags") is not None
