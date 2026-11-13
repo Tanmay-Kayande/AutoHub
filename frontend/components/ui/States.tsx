@@ -42,12 +42,22 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
   );
 }
 
-export function SectionHeading({ eyebrow, title, children }: { eyebrow?: string; title: string; children?: React.ReactNode }) {
+export function SectionHeading({
+  eyebrow,
+  title,
+  children,
+  as: Heading = "h2",
+}: {
+  eyebrow?: string;
+  title: string;
+  children?: React.ReactNode;
+  as?: "h1" | "h2";
+}) {
   return (
     <div className="mb-8 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
       <div>
         {eyebrow ? <p className="text-xs uppercase tracking-[0.2em] text-accent">{eyebrow}</p> : null}
-        <h2 className="mt-1 font-display text-2xl font-semibold tracking-tight md:text-3xl">{title}</h2>
+        <Heading className="mt-1 font-display text-2xl font-semibold tracking-tight md:text-3xl">{title}</Heading>
       </div>
       {children}
     </div>

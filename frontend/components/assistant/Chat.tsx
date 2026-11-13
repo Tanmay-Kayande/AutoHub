@@ -242,7 +242,7 @@ export function Chat({
           }}
           rows={1}
           maxLength={1000}
-          placeholder="Ask about specs, features or which car fits you…"
+          placeholder="Ask about any car…"
           className="max-h-40 min-h-[2.5rem] flex-1 resize-none bg-transparent px-3 py-2 text-sm placeholder:text-muted/70 focus:outline-none"
         />
         <button

@@ -22,7 +22,7 @@ export default async function BrandsPage() {
   }
   return (
     <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
-      <SectionHeading eyebrow="Catalogue" title="Brands" />
+      <SectionHeading as="h1" eyebrow="Catalogue" title="Brands" />
       {brands.items.length === 0 ? (
         <EmptyState title="No brands yet" body="Brands appear once their catalogue has been imported." />
       ) : (

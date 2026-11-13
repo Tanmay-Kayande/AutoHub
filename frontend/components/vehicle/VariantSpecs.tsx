@@ -94,7 +94,7 @@ export function VariantSpecs({
         ) : null}
       </div>
 
-      <div role="tablist" aria-label="Specification categories" className="no-scrollbar mt-8 flex gap-1 overflow-x-auto border-b border-line">
+      <div role="tablist" aria-label="Specification categories" className="no-scrollbar mt-8 flex gap-1 overflow-x-auto border-b border-line md:flex-wrap md:overflow-visible">
         {categories.map((c) => (
           <button
             key={c.key}
