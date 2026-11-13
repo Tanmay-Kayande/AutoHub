@@ -11,7 +11,7 @@ def optional_routers() -> list[APIRouter]:
     Each is imported here, in one place, so ``main`` does not need to change as
     modules are added.
     """
-    from autohub.api.v1 import search
+    from autohub.api.v1 import assistant, search
 
-    routers: list[APIRouter] = [search.router]
+    routers: list[APIRouter] = [search.router, assistant.router]
     return routers

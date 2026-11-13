@@ -6,6 +6,7 @@ document is the authoritative reference.
 
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
@@ -525,3 +526,65 @@ class StructuredOut(BaseModel):
         description="per spec key: eligible variants excluded because they have no value"
     )
     items: list[StructuredRowOut]
+
+
+# ----------------------------------------------------------------------- assistant
+class AskIn(BaseModel):
+    question: str = Field(min_length=2, max_length=1000)
+    model_id: int | None = None
+    variant_ids: list[int] = Field(default_factory=list, max_length=8)
+    conversation_id: uuid.UUID | None = None
+
+
+class AnswerSegmentOut(BaseModel):
+    kind: Literal["verified_fact", "sourced_info", "explanation"]
+    text: str
+    evidence_ids: list[str]
+
+
+class AnswerBody(BaseModel):
+    segments: list[AnswerSegmentOut]
+    missing: list[str]
+
+
+class EvidenceOut(BaseModel):
+    id: str
+    kind: str
+    text: str
+    source: dict[str, Any]
+    refs: dict[str, Any]
+    confidence: float | None
+
+
+class AskOut(BaseModel):
+    conversation_id: uuid.UUID
+    message_id: int
+    intent: str
+    answer: AnswerBody
+    evidence: list[EvidenceOut]
+    flags: list[str]
+    plan: dict[str, Any]
+    usage: dict[str, int]
+    latency_ms: int
+
+
+class ChatMessageOut(ORMModel):
+    id: int
+    role: str
+    content: str
+    intent: str | None
+    answer: dict[str, Any] | None
+    evidence: list[dict[str, Any]] | None
+    created_at: datetime
+
+
+class ConversationOut(ORMModel):
+    id: uuid.UUID
+    title: str | None
+    context_model_id: int | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConversationDetail(ConversationOut):
+    messages: list[ChatMessageOut]
