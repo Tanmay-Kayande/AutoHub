@@ -22,10 +22,10 @@ import sys
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
-from sqlalchemy import Connection, select
+from sqlalchemy import Connection, or_, select, update
 from sqlalchemy.orm import Session
 
 from autohub.assistant.llm import LLMProvider, get_llm_provider
@@ -142,6 +142,7 @@ class Pipeline:
         with advisory_lock(self._lock_connect) as acquired:
             if not acquired:
                 return self._close(db, run, "skipped", None, error="another pipeline run holds the lock")
+            recover_stale_runs(db, current_run_id=run.id)
             stats = _Stats()
             try:
                 self._execute(db, run, options, stats)
@@ -417,6 +418,63 @@ class Pipeline:
         db.commit()
         logger.info("pipeline_run id=%s status=%s error=%s", run.id, status, error)
         return run
+
+
+# ---------------------------------------------------------------- stale-run recovery
+STALE_RUN_GRACE = timedelta(minutes=10)
+
+
+def recover_stale_runs(
+    db: Session,
+    *,
+    current_run_id: int,
+    grace: timedelta = STALE_RUN_GRACE,
+    now: datetime | None = None,
+) -> dict[str, int]:
+    """Mark runs left ``running`` by a killed process as failed. Call only while holding the lock.
+
+    Holding the advisory lock proves no other pipeline is executing, so every other
+    ``running`` extraction run is dead (extraction only happens inside a pipeline run).
+    A ``running`` pipeline row may still be one the admin API just created and whose
+    thread has not reached the lock yet, so pipeline rows get a grace period.
+    """
+    now = now or datetime.now(UTC)
+    message = f"abandoned: the process ended before the run finished (recovered by run {current_run_id})"
+    pipeline_rows = (
+        db.execute(
+            update(PipelineRun)
+            .where(
+                PipelineRun.status == "running",
+                PipelineRun.id != current_run_id,
+                PipelineRun.started_at < now - grace,
+            )
+            .values(status="failed", error=message, finished_at=now)
+            .returning(PipelineRun.id)
+        )
+        .scalars()
+        .all()
+    )
+    extraction_rows = (
+        db.execute(
+            update(ExtractionRun)
+            .where(
+                ExtractionRun.status == "running",
+                or_(ExtractionRun.pipeline_run_id.is_(None), ExtractionRun.pipeline_run_id != current_run_id),
+            )
+            .values(status="failed", error_type="abandoned", error_message=message, finished_at=now)
+            .returning(ExtractionRun.id)
+        )
+        .scalars()
+        .all()
+    )
+    db.commit()
+    if pipeline_rows or extraction_rows:
+        logger.warning(
+            "pipeline_stale_runs_recovered pipeline_runs=%s extraction_runs=%s",
+            list(pipeline_rows),
+            list(extraction_rows),
+        )
+    return {"pipeline_runs": len(pipeline_rows), "extraction_runs": len(extraction_rows)}
 
 
 # ---------------------------------------------------------------- production wiring
