@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from typing import Any
 
 import pytest
@@ -104,23 +105,25 @@ def test_profile_update_and_password_change(client: Any, db: Session) -> None:
     updated = client.patch(f"{API}/auth/me", headers=headers, json={"name": "New Name", "location": "Pune"})
     assert updated.status_code == 200 and updated.json()["name"] == "New Name"
 
+    # Generated per run: no credential-looking literals for secret scanners to flag.
+    new_password = secrets.token_urlsafe(16)
     wrong = client.patch(
         f"{API}/auth/me",
         headers=headers,
-        json={"current_password": "wrong-one", "new_password": "brand-new-password"},
+        json={"current_password": secrets.token_urlsafe(16), "new_password": new_password},
     )
     assert wrong.status_code == 400
 
     ok = client.patch(
-        f"{API}/auth/me",
-        headers=headers,
-        json={"current_password": PASSWORD, "new_password": "brand-new-password"},
+        f"{API}/auth/me", headers=headers, json={"current_password": PASSWORD, "new_password": new_password}
     )
     assert ok.status_code == 200
     relogin = client.post(
-        f"{API}/auth/login", data={"username": "edit@example.com", "password": "brand-new-password"}
+        f"{API}/auth/login", data={"username": "edit@example.com", "password": new_password}
     )
     assert relogin.status_code == 200
+    old = client.post(f"{API}/auth/login", data={"username": "edit@example.com", "password": PASSWORD})
+    assert old.status_code == 401
 
 
 def test_v1_hash_formats_still_verify() -> None:

@@ -40,7 +40,12 @@ tests/          unit, integration (PostgreSQL) and RAG evaluation tests
 Requirements: Python 3.12+, Docker, Node.js 20+.
 
 ```bash
-# 1. Database (PostgreSQL + pgvector on 127.0.0.1:5433; also creates autohub_test)
+# 1. Database (PostgreSQL + pgvector on 127.0.0.1:5433; also creates autohub_test).
+#    First create .env at the repo root (git-ignored) with a password of your own:
+#      AUTOHUB_DB_PASSWORD=<random value>
+#      TEST_DATABASE_URL=postgresql://autohub:<same value>@127.0.0.1:5433/autohub_test
+#    The password is applied when the data volume is first created; to change it later,
+#    use ALTER ROLE and update both .env files.
 docker compose up -d db
 
 # 2. Backend
@@ -86,7 +91,7 @@ API docs: `http://127.0.0.1:8001/docs`. Health: `/health`.
 ## Checks
 
 ```bash
-python -m pytest -q          # needs the database; tests only touch autohub_test
+python -m pytest -q          # needs the database and TEST_DATABASE_URL; tests only touch autohub_test
 python -m ruff check . && python -m ruff format --check .
 python -m mypy autohub tools
 cd frontend && npm run typecheck && npm run lint && npm run build

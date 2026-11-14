@@ -14,7 +14,8 @@ services:
     init: true
     environment:
       POSTGRES_USER: ${AUTOHUB_DB_USER:-autohub}
-      POSTGRES_PASSWORD: ${AUTOHUB_DB_PASSWORD:-autohub_dev_only}
+      # No default: set it in the git-ignored .env at the repo root (see README).
+      POSTGRES_PASSWORD: ${AUTOHUB_DB_PASSWORD:?Set AUTOHUB_DB_PASSWORD in .env at the repo root}
       POSTGRES_DB: ${AUTOHUB_DB_NAME:-autohub_dev}
     ports:
       - "127.0.0.1:${AUTOHUB_DB_PORT:-5433}:5432"

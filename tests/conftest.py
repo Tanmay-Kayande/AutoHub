@@ -19,8 +19,19 @@ from pathlib import Path
 
 import pytest
 
-DEFAULT_TEST_DATABASE_URL = "postgresql://autohub:autohub_dev_only@127.0.0.1:5433/autohub_test"
-TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", DEFAULT_TEST_DATABASE_URL)
+
+def _test_database_url() -> str:
+    """From the environment, else from the git-ignored ``.env`` at the repo root. No password in code."""
+    from dotenv import dotenv_values
+
+    url = os.environ.get("TEST_DATABASE_URL") or dotenv_values(
+        Path(__file__).resolve().parents[1] / ".env"
+    ).get("TEST_DATABASE_URL")
+    # Without a configured URL, this password-less one fails to connect and DB tests are skipped.
+    return url or "postgresql://autohub@127.0.0.1:5433/autohub_test"
+
+
+TEST_DATABASE_URL = _test_database_url()
 
 _TMP_DATA_DIR = tempfile.mkdtemp(prefix="autohub-test-data-")
 
@@ -74,7 +85,10 @@ def engine() -> Iterator[object]:
 
     assert_safe_test_database(TEST_DATABASE_URL)
     if not _database_available(TEST_DATABASE_URL):
-        pytest.skip("PostgreSQL test database is not reachable (run: docker compose up -d db)")
+        pytest.skip(
+            "PostgreSQL test database is not reachable: run `docker compose up -d db` and set "
+            "TEST_DATABASE_URL in the repo-root .env (see README)"
+        )
 
     eng = create_engine(TEST_DATABASE_URL)
     # Start from an empty schema so leftovers from an aborted run cannot leak in.
