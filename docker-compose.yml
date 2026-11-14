@@ -14,8 +14,9 @@ services:
     init: true
     environment:
       POSTGRES_USER: ${AUTOHUB_DB_USER:-autohub}
-      # No default: set it in the git-ignored .env at the repo root (see README).
-      POSTGRES_PASSWORD: ${AUTOHUB_DB_PASSWORD:?Set AUTOHUB_DB_PASSWORD in .env at the repo root}
+      # No default: set AUTOHUB_DB_PASSWORD in the git-ignored .env at the repo root (see README).
+      # If it is missing, the image refuses to initialise a new data volume.
+      POSTGRES_PASSWORD: ${AUTOHUB_DB_PASSWORD}
       POSTGRES_DB: ${AUTOHUB_DB_NAME:-autohub_dev}
     ports:
       - "127.0.0.1:${AUTOHUB_DB_PORT:-5433}:5432"
