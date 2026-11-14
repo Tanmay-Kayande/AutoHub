@@ -28,3 +28,8 @@ autohub/automation/brochures/downloader/checksums.json
 checksums.json
 
 AutoHub.code-workspace
+# V2 runtime data
+backups/
+data/
+frontend/node_modules/
+frontend/.next/

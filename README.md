@@ -1,311 +1,112 @@
-# 🚗 AutoHub Backend
+# AutoHub
 
-![Version](https://img.shields.io/badge/version-v1.7.1-blue)
+AutoHub is a car research platform built on specifications taken from official manufacturer brochures. It finds brochures on brand websites, extracts structured specifications with an LLM, keeps every value's source (brochure, page, confidence), and serves them through a REST API, a search engine and an assistant that answers only from that data and shows its evidence.
 
-AutoHub is an automation-first backend system for discovering, downloading, and extracting structured vehicle specifications from official automotive brochures using Gemini LLM. It also automatically fetches car images and provides production-ready backend APIs for cars, automotive news, and authentication.
+**Stack:** Python 3.13 · FastAPI · SQLAlchemy 2 · PostgreSQL 18 with pgvector · Alembic · Gemini (extraction, assistant, embeddings) · Playwright (crawling) · Next.js 15 + Tailwind 4 (frontend).
 
----
+## What it does
 
-# 🧠 What AutoHub Does
+- **Ingestion.** Brand adapters (Mahindra, Hyundai) discover brochure PDFs on official sites under a polite crawl policy: `robots.txt`, per-host spacing, official domains only, TLS always verified. Downloads use conditional GET and a content-addressed store, so an unchanged brochure is never fetched or processed twice.
+- **Extraction.** Each new brochure version is sent to the LLM with a schema built from the spec taxonomy (114 definitions). Values are normalised to canonical units and written under a guarded rule: a weaker or emptier source never overwrites a better value, and every replacement is kept in history.
+- **Catalogue API.** Brands, models, variants, specs grouped by category, side-by-side comparison, news, images, plus admin endpoints for curation and pipeline runs.
+- **Search.** Structured filters (fuel, transmission, price, any numeric spec), keyword, semantic (pgvector) and hybrid ranking (reciprocal rank fusion).
+- **Assistant.** Turns a question into a validated query plan, retrieves evidence from the catalogue and brochure pages, and answers with citations. Anything the data doesn't contain is reported as missing rather than guessed. Answers stream over SSE; logged-in users get private conversation history.
+- **Frontend.** Home, brands, model pages with a variant selector and spec tabs, compare, assistant, news, login/signup/profile. Checked at 390 px and 1440 px.
 
-AutoHub automatically:
-
-1. Discovers official brochures from brand websites (JS-rendered)
-2. Downloads PDFs with checksum-based version tracking
-3. Extracts structured specification tables using Gemini LLM
-4. Normalizes variant-level data
-5. Stores structured data into a relational database
-6. Fetches exterior and interior car images automatically
-7. Runs the full pipeline on a monthly schedule — no manual intervention needed
-
----
-
-# 🏗 Architecture Overview
-
-### Data Ingestion Pipeline
-```
-Discovery → Download → Extraction (Gemini) → Normalization → Database
-```
-
-### Image Pipeline
-```
-CarModel in DB → SerpApi Google Images → Image URLs → Database
-```
-
-### Scheduler
-```
-FastAPI Startup → APScheduler → Full Pipeline (1st of every month at midnight)
-```
-
-- **Discovery Layer** → Playwright-based JS rendering crawler
-- **Downloader Layer** → Retry + Checksum version control
-- **Extractor Layer** → Gemini structured JSON extraction
-- **Normalizer Layer** → Cleans & standardizes variant data
-- **DB Writer** → SQLAlchemy ORM ingestion
-- **Image Fetcher** → SerpApi Google Images (exterior + interior)
-- **Scheduler** → APScheduler integrated into FastAPI lifecycle
-
----
-
-# 🚀 Current Capabilities (v1.7.1)
-
-## Automation
-- ✅ Dynamic Mahindra brochure discovery (Playwright-based JS rendering)
-- ✅ Robust PDF downloader with retry logic
-- ✅ Smart checksum tracking (version-aware, extracted flag)
-- ✅ AI-based structured extraction via Gemini
-- ✅ Model-version aware reprocessing
-- ✅ Variant-level normalization
-- ✅ Database ingestion pipeline
-- ✅ Automatic car image fetching (exterior + interior) via SerpApi
-- ✅ Duplicate-safe image writer (safe to re-run)
-- ✅ Merged pipeline — brochure + image in one run
-- ✅ Monthly scheduled pipeline via APScheduler
-- ✅ Manual pipeline trigger via authenticated API endpoint
-
-## Backend APIs
-- ✅ JWT Authentication (Signup / Login)
-- ✅ Car Catalog CRUD APIs (Brands, Models, Variants, Specs, Images)
-- ✅ Automotive News APIs
-- ✅ Pipeline manual trigger endpoint (`POST /pipeline/run`)
-- ✅ SQLAlchemy ORM
-- ✅ Pydantic validation
-- ✅ SQLite database (easily swappable)
-
----
-
-# 🛠 Tech Stack
-
-- **FastAPI**
-- **SQLAlchemy**
-- **Pydantic**
-- **SQLite**
-- **Google Gemini API**
-- **Playwright** (JS rendering)
-- **SerpApi** (Google Images)
-- **APScheduler** (scheduled pipeline)
-- **JWT Authentication** (argon2 + bcrypt)
-
----
-
-# ⚙️ Installation
-
-## 1️⃣ Clone Repository
-
-```bash
-git clone <your-repo-url>
-cd AutoHub
-```
-
-## 2️⃣ Install Python Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-## 3️⃣ Install Playwright (Required for JS Rendering)
-
-```bash
-pip install playwright
-playwright install
-```
-
-⚠ Required because Mahindra website is JavaScript-rendered.
-
-## 4️⃣ Setup Environment Variables
-
-Create a `.env` file in the `autohub/` directory:
-
-```dotenv
-SECRET_KEY=your_jwt_secret_key_here
-GEMINI_API_KEY=your_gemini_api_key_here
-SERPAPI_KEY=your_serpapi_key_here
-```
-
-> All three keys are required. The app will raise a `RuntimeError` at startup if any are missing.
-
----
-
-# ▶ Running the Backend API
-
-```bash
-uvicorn autohub.main:app --reload
-```
-
-Open Swagger docs at:
-
-```
-http://127.0.0.1:8000/docs
-```
-
-On startup, the scheduler is automatically registered and will run the full pipeline on the 1st of every month at midnight.
-
----
-
-# 🤖 Running the Pipeline Manually
-
-## Via CLI
-```bash
-python -m autohub.automation.pipeline
-```
-
-## Via API (requires JWT token)
-```
-POST /pipeline/run
-```
-
-Returns immediately with `{"message": "Full pipeline triggered in background"}` — pipeline runs in a background thread.
-
----
-
-# 🔄 Full Pipeline (automation/pipeline.py)
-
-The merged pipeline runs both phases in sequence:
-
-**Phase 1 — Brochure Pipeline:**
-1. Brochure Discovery (Playwright)
-2. PDF Download (with checksum)
-3. Gemini Extraction
-4. Normalization + DB Write
-
-**Phase 2 — Image Pipeline:**
-1. Load all car models from DB
-2. Fetch 5 exterior + 5 interior images per model (SerpApi)
-3. Skip duplicates automatically
-4. Write image URLs to DB
-
----
-
-# 🔁 Checksum & Smart Reprocessing
-
-AutoHub tracks per brochure:
-
-- File checksum (SHA256)
-- Extraction status (`extracted: true/false`)
-- Gemini model version used
-- Last updated timestamp
-
-Brochures are reprocessed only if:
-
-- File content changes (new brochure version)
-- `extracted: false` (previous extraction failed)
-- `FORCE_REPROCESS = True` is set
-
-This ensures zero wasted Gemini API calls on already-processed brochures.
-
----
-
-# 🧪 Force Reprocessing (Optional)
-
-Inside `automation/pipeline.py`:
-
-```python
-FORCE_REPROCESS = True
-```
-
-Use this if:
-- You updated the Gemini prompt
-- You changed the Gemini model
-- You modified normalization logic
-
----
-
-# 📂 Project Structure
+## Layout
 
 ```
 autohub/
-│
-├── automation/
-│   ├── pipeline.py              # Merged full pipeline (Phase 1 + Phase 2)
-│   ├── scheduler.py             # APScheduler — monthly cron trigger
-│   ├── discovery/               # Playwright brochure discovery
-│   ├── brochures/
-│   │   ├── downloader/          # PDF downloader with retry
-│   │   ├── extractor/           # Gemini LLM extraction
-│   │   ├── parser/              # Docling PDF parser
-│   │   ├── checksum.py          # SHA256 + extracted flag tracking
-│   │   └── utils.py
-│   ├── images/                  # Image pipeline
-│   │   ├── image_fetcher.py     # SerpApi Google Images
-│   │   ├── image_writer.py      # Duplicate-safe DB writer
-│   ├── normalizer/              # Data normalization
-│   └── db_writer/               # ORM DB writer
-│
-├── api/
-│   ├── catalog.py               # Car catalog CRUD
-│   ├── news.py                  # News CRUD
-│   ├── login.py                 # JWT auth
-│   ├── users.py                 # User management
-│   └── routes.py                # Pipeline trigger endpoint
-│
-├── database/
-│   ├── model.py                 # SQLAlchemy ORM models
-│   └── connection.py            # DB session management
-│
-├── model/
-│   └── schemas.py               # Pydantic schemas
-│
-├── core/
-│   └── config.py                # Env config with startup guards
-│
-└── main.py                      # FastAPI app entry point + scheduler wiring
+  api/          v1 routes (/api/v1/...), V1-compatible legacy routes, response schemas
+  assistant/    LLM provider seam, query plans, retrieval, answers, citation checks
+  auth/         argon2 passwords, JWT, roles
+  catalog/      catalogue queries and comparison
+  core/         settings, logging, errors, pagination, rate limiting
+  db/           SQLAlchemy models and session
+  images/       image search provider, validation, primary selection
+  ingestion/    adapters, fetcher, downloader, extraction, normaliser, writer
+  jobs/         pipeline orchestrator (advisory lock), scheduler
+  news/         news service
+  search/       embeddings, indexer, structured/keyword/semantic/hybrid search
+  specs/        taxonomy, units, guarded spec writer
+  alembic/      database migrations
+frontend/       Next.js app
+tools/          one-off and maintenance commands (see below)
+tests/          unit, integration (PostgreSQL) and RAG evaluation tests
 ```
 
----
+## Running locally
 
-# 🗄 Database Schema
+Requirements: Python 3.12+, Docker, Node.js 20+.
 
-| Table | Description |
+```bash
+# 1. Database (PostgreSQL + pgvector on 127.0.0.1:5433; also creates autohub_test).
+#    First create .env at the repo root (git-ignored) with a password of your own:
+#      AUTOHUB_DB_PASSWORD=<random value>
+#      TEST_DATABASE_URL=postgresql://autohub:<same value>@127.0.0.1:5433/autohub_test
+#    The password is applied when the data volume is first created; to change it later,
+#    use ALTER ROLE and update both .env files.
+docker compose up -d db
+
+# 2. Backend
+python -m venv autohub/venv
+autohub/venv/Scripts/python -m pip install -e ".[dev]"      # bin/python on Linux/macOS
+autohub/venv/Scripts/python -m playwright install chromium
+autohub/venv/Scripts/python -m alembic upgrade head
+autohub/venv/Scripts/python -m uvicorn autohub.main:app --port 8001
+
+# 3. Frontend (http://localhost:3000)
+cd frontend && npm install && npm run dev
+```
+
+Configuration is read from `autohub/.env` or `.env` at the repo root (both git-ignored):
+
+| Variable | Required | Notes |
+|---|---|---|
+| `DATABASE_URL` | yes | e.g. `postgresql+psycopg2://autohub:<password>@127.0.0.1:5433/autohub_dev` |
+| `SECRET_KEY` | yes | JWT signing key; use a long random value |
+| `GEMINI_API_KEY` | for extraction, assistant, semantic search | without it those features report that they're unavailable |
+| `SERPAPI_KEY` | for image search | optional |
+| `CORS_ORIGINS` | no | default `http://localhost:3000,http://127.0.0.1:3000` |
+| `SCHEDULER_ENABLED` | no | monthly pipeline run (`PIPELINE_CRON`, default 03:00 UTC on the 1st) |
+| `NEXT_PUBLIC_API_URL` | no (frontend) | default `http://127.0.0.1:8001` |
+
+Other settings (models, budgets, crawl delay, pool size) are listed in `autohub/core/settings.py`.
+
+API docs: `http://127.0.0.1:8001/docs`. Health: `/health`.
+
+## Commands
+
+| Command | Purpose |
 |---|---|
-| `users` | Registered users with hashed passwords |
-| `car_brands` | Car manufacturers (e.g. Mahindra) |
-| `car_models` | Car models per brand |
-| `car_variants` | Variants per model (fuel type, transmission, price) |
-| `car_specs` | Technical specs per variant |
-| `car_images` | Exterior + interior image URLs per model |
-| `news` | Automotive news articles |
-| `news_images` | Images per news article |
+| `python -m autohub.jobs.pipeline [--brands hyundai] [--stages discover,download,extract] [--max-extractions N]` | Run ingestion. One run at a time; paid work is capped per run |
+| `python -m tools.reindex` | Embed new or changed documents for search |
+| `python -m tools.validate_images` | Check stored image URLs over HTTP and pick a primary per model |
+| `python -m tools.renormalize_specs [--commit]` | Re-parse wording-only numeric specs after a parser fix (dry run by default) |
+| `python -m tools.run_rag_eval` | Measure the assistant against ground truth from the live catalogue |
+| `python -m tools.make_admin <email>` | Promote a user to admin (roles cannot be changed through the API) |
+| `python -m tools.migrate_sqlite_to_postgres` | One-off: migrate V1 SQLite data, with a validation report |
+| `python -m tools.import_v1_brochures` | One-off: import brochure PDFs V1 already downloaded |
 
----
+## Checks
 
-# 📌 Important Notes
+```bash
+python -m pytest -q          # needs the database and TEST_DATABASE_URL; tests only touch autohub_test
+python -m ruff check . && python -m ruff format --check .
+python -m mypy autohub tools
+cd frontend && npm run typecheck && npm run lint && npm run build
+```
 
-- Gemini free tier allows 20 requests/day — avoid triggering the pipeline multiple times in a day
-- Large PDFs may trigger upload failures
-- Extraction works best when specification tables are clearly structured
-- Playwright is mandatory for dynamic brand websites
-- SerpApi free tier allows 100 searches/month
-- Run the migration script if upgrading from v1.6.0 or earlier (adds `image_type` column to `car_images`)
+To run a production build next to a running `next dev`, give it its own output folder (`NEXT_DIST_DIR=.next-verify` for both `next build` and `next start`). Both writing to `.next` corrupts it.
 
----
+## Data and sources
 
-# 🔮 Planned Features (Phase 3)
+- Specifications are only as complete as the brochures that have been extracted. Values that came over from V1 and aren't confirmed by a brochure yet are labelled "Unverified (legacy)".
+- Images are found by search and belong to their owners; each image shows its source.
+- A brochure that prints several values for one spec (for example per fuel type) keeps the printed wording rather than a guessed single number.
 
-- Filter out marketing-only brochures in discovery (no spec tables)
-- Gemini rate limit handling with retry + backoff
-- Automated daily news collection (RSS + NewsAPI)
-- News authenticity scoring model
-- Multi-brand brochure support
-- PostgreSQL production migration
-- Alembic migrations
+## Known limitations
 
----
-
-# 🏁 Version History
-
-| Version | Description |
-|---|---|
-| v1.7.1 | APScheduler + merged pipeline + manual trigger API |
-| v1.7.0 | Phase 2 — Automatic car image pipeline (SerpApi) |
-| v1.6.0 | Catalog module + schema-aligned news routes |
-| v1.5.1 | Checksum + extraction stability fixes |
-| v1.5.0 | End-to-end pipeline |
-| v1.4.0 | Brochure extraction |
-| v1.3.0 | Automation complete |
-| v1.2.0 | Brochure pipeline |
-
----
-
-# 👨‍💻 Author
-
-Built with an automation-first mindset for scalable automotive data extraction.
+- Tata: the official site's TLS certificate was invalid when last checked, and TLS verification is never disabled, so there's no Tata adapter yet.
+- Extraction and embeddings run on a free-tier Gemini quota, so a large backlog is processed over several runs.
+- Mahindra's XUV400 page is disallowed by the site's `robots.txt` and is skipped.
