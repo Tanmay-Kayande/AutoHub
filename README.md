@@ -6,7 +6,7 @@ AutoHub is a car research platform built on specifications taken from official m
 
 ## What it does
 
-- **Ingestion.** Brand adapters (Mahindra, Hyundai) discover brochure PDFs on official sites under a polite crawl policy: `robots.txt`, per-host spacing, official domains only, TLS always verified. Downloads use conditional GET and a content-addressed store, so an unchanged brochure is never fetched or processed twice.
+- **Ingestion.** Brand adapters (Mahindra, Hyundai, Tata) discover brochure PDFs on official sites under a polite crawl policy: `robots.txt`, per-host spacing, official domains only, TLS always verified. Downloads use conditional GET and a content-addressed store, so an unchanged brochure is never fetched or processed twice.
 - **Extraction.** Each new brochure version is sent to the LLM with a schema built from the spec taxonomy (114 definitions). Values are normalised to canonical units and written under a guarded rule: a weaker or emptier source never overwrites a better value, and every replacement is kept in history.
 - **Catalogue API.** Brands, models, variants, specs grouped by category, side-by-side comparison, news, images, plus admin endpoints for curation and pipeline runs.
 - **Search.** Structured filters (fuel, transmission, price, any numeric spec), keyword, semantic (pgvector) and hybrid ranking (reciprocal rank fusion).
