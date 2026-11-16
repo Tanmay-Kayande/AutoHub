@@ -483,15 +483,25 @@ class FakeLLMProvider:
         yield from (answer if isinstance(answer, list) else [str(answer)])
 
 
-def get_llm_provider(settings: Settings | None = None, *, model: str | None = None) -> LLMProvider:
-    """The provider selected by ``LLM_PROVIDER``. Demands the API key only here."""
+def get_llm_provider(
+    settings: Settings | None = None,
+    *,
+    model: str | None = None,
+    timeout_seconds: float | None = None,
+    max_attempts: int | None = None,
+) -> LLMProvider:
+    """The provider selected by ``LLM_PROVIDER``. Demands the API key only here.
+
+    ``timeout_seconds`` and ``max_attempts`` override the assistant's settings for callers
+    with a different profile (brochure extraction: long outputs, every attempt costs quota).
+    """
     settings = settings or get_settings()
     if settings.llm_provider == "gemini":
         return GeminiProvider(
             api_key=settings.require_gemini_key(),
             model=model or settings.llm_model,
-            timeout_seconds=settings.llm_timeout_seconds,
-            max_attempts=settings.llm_max_attempts,
+            timeout_seconds=timeout_seconds or settings.llm_timeout_seconds,
+            max_attempts=max_attempts or settings.llm_max_attempts,
         )
     if settings.llm_provider == "fake":
         return FakeLLMProvider()

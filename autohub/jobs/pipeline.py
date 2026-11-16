@@ -1,4 +1,4 @@
-"""Ingestion pipeline: discover → download → extract (→ images → index).
+"""Ingestion pipeline: discover -> download -> extract (-> images -> index).
 
 One run at a time, enforced by a PostgreSQL advisory lock; a run that cannot
 get the lock is recorded as ``skipped``. Each brochure is its own transaction,
@@ -118,7 +118,12 @@ class Pipeline:
         self._resolve = resolve
         self._fetcher_factory = fetcher_factory
         self._provider_factory = provider_factory or (
-            lambda: get_llm_provider(self.settings, model=self.settings.extraction_model)
+            lambda: get_llm_provider(
+                self.settings,
+                model=self.settings.extraction_model,
+                timeout_seconds=self.settings.extraction_timeout_seconds,
+                max_attempts=self.settings.extraction_max_attempts,
+            )
         )
         self.store = store or BrochureStore(self.settings.data_dir / "brochures")
         self._handlers = dict(stage_handlers or {})
@@ -332,6 +337,7 @@ class Pipeline:
         self, db: Session, run: PipelineRun, brands: list[Brand], budget: int, stats: _Stats
     ) -> None:
         pending: list[BrochureVersion] = []
+        queued: set[tuple[int, str]] = set()
         extractor: BrochureExtractor | None = None
         for brochure in self._work_brochures(db, [b.id for b in brands]):
             version = self._current_version(db, brochure.id)
@@ -344,8 +350,16 @@ class Pipeline:
                     stats.errors.append({"stage": "extract", "message": f"LLM provider unavailable: {exc}"})
                     return
                 extractor = BrochureExtractor(provider, self.store)
-            if extractor.needs_extraction(db, version):
-                pending.append(version)
+            if not extractor.needs_extraction(db, version):
+                continue
+            # One file published under two links is extracted once; the twin becomes
+            # "done" as soon as that run succeeds (needs_extraction is keyed on content).
+            content = (brochure.brand_id, version.sha256)
+            if content in queued:
+                stats.extract["duplicate_content"] += 1
+                continue
+            queued.add(content)
+            pending.append(version)
         stats.extract["pending"] = len(pending)
         if extractor is None:
             return

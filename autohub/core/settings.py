@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     extraction_model: str = "gemini-2.5-flash"
     llm_timeout_seconds: float = Field(default=180.0, gt=0)
     llm_max_attempts: int = Field(default=4, ge=1)
+    # Extraction output runs to tens of thousands of tokens (about 230 tokens/s measured), so
+    # a brochure with many variants needs minutes, not the assistant's timeout. Every attempt
+    # is a request against the daily quota, so a timed-out extraction is retried once only.
+    extraction_timeout_seconds: float = Field(default=600.0, gt=0)
+    extraction_max_attempts: int = Field(default=2, ge=1)
     embedding_provider: str = "gemini"
     embedding_model: str = "gemini-embedding-001"
     embedding_version: str = "v1"
