@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import ClassVar, Protocol
 from urllib.parse import urlsplit
 
@@ -56,9 +57,21 @@ class DiscoveredBrochure:
     is_primary_layout: bool = True
 
 
+@dataclass(frozen=True)
+class DiscoveredPrice:
+    """A model's ex-showroom price as printed on the brand's own site, in rupees."""
+
+    brand: str
+    model_hint: str  # the site's name for the model, e.g. "SCORPIO-N"
+    price_min: Decimal
+    price_max: Decimal | None  # None when the site prints a starting price only
+    source_url: str  # page the price was read from
+
+
 @dataclass
 class DiscoveryResult:
     brochures: list[DiscoveredBrochure] = field(default_factory=list)
+    prices: list[DiscoveredPrice] = field(default_factory=list)
     errors: list[AdapterError] = field(default_factory=list)
     pages_visited: int = 0
 

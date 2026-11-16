@@ -8,11 +8,13 @@ export function formatPrice(value: number | null | undefined): string | null {
   return `₹${(value / LAKH).toFixed(2)} lakh`;
 }
 
+/** A range, one price, or "From ₹…" when only a starting price is known (max is null). */
 export function priceRange(min: number | null, max: number | null): string | null {
   const low = formatPrice(min);
   const high = formatPrice(max);
   if (!low) return null;
-  return high && high !== low ? `${low} – ${high}` : low;
+  if (!high) return `From ${low}`;
+  return high !== low ? `${low} – ${high}` : low;
 }
 
 const CODE_LABELS: Record<string, string> = {

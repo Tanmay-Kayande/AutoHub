@@ -118,7 +118,10 @@ class ModelSummary(BaseModel):
     fuel_types: list[str]
     transmission_types: list[str]
     price_min: Num | None
-    price_max: Num | None
+    price_max: Num | None  # null with a price_min means "starting from"
+    # Set when the range is the brand's published model-level price rather than variant prices.
+    price_source: str | None = None
+    price_as_of: date | None = None
     primary_image: ImageOut | None
     key_specs: list[KeySpecRange]
 

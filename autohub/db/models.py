@@ -117,6 +117,18 @@ class VehicleModel(Base):
         UniqueConstraint("brand_id", "slug", name="uq_vehicle_models_brand_slug"),
         UniqueConstraint("brand_id", "name", name="uq_vehicle_models_brand_name"),
         CheckConstraint(f"body_type IS NULL OR {_in('body_type', BODY_TYPES)}", name="body_type_valid"),
+        CheckConstraint(
+            "price_min_ex_showroom IS NULL OR (price_source IS NOT NULL AND price_as_of IS NOT NULL)",
+            name="model_price_requires_source",
+        ),
+        CheckConstraint(
+            "price_max_ex_showroom IS NULL OR "
+            "(price_min_ex_showroom IS NOT NULL AND price_max_ex_showroom >= price_min_ex_showroom)",
+            name="model_price_range_valid",
+        ),
+        CheckConstraint(
+            "price_min_ex_showroom IS NULL OR price_min_ex_showroom >= 0", name="model_price_non_negative"
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -126,6 +138,12 @@ class VehicleModel(Base):
     body_type: Mapped[str | None] = mapped_column(Text)
     segment: Mapped[str | None] = mapped_column(Text)
     description: Mapped[str | None] = mapped_column(Text)
+    # Model-level ex-showroom price range as published on the brand's site (rupees).
+    # ``price_max_ex_showroom`` is NULL when the site prints a starting price only.
+    price_min_ex_showroom: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    price_max_ex_showroom: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    price_source: Mapped[str | None] = mapped_column(Text)
+    price_as_of: Mapped[date | None] = mapped_column(Date)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     created_at: Mapped[datetime] = _created()
     updated_at: Mapped[datetime] = _updated()

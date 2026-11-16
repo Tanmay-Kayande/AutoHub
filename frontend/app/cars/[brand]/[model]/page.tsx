@@ -77,6 +77,15 @@ export default async function ModelPage({ params }: { params: Params }) {
               .join(" — ")}
           </p>
           <p className="mt-2 text-lg">{price ?? <span className="text-muted">Ex-showroom price not published</span>}</p>
+          {price && model.price_source ? (
+            <p className="mt-1 text-xs text-muted">
+              Ex-showroom, as published by{" "}
+              <a href={model.price_source} target="_blank" rel="noreferrer" className="underline hover:text-text">
+                {model.brand.name}
+              </a>
+              {model.price_as_of ? ` · checked ${model.price_as_of}` : ""}
+            </p>
+          ) : null}
         </div>
       </section>
 

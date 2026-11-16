@@ -13,6 +13,7 @@ Electric models are published on a separate site and are not covered here.
 from __future__ import annotations
 
 import re
+from html import unescape
 from typing import ClassVar
 from urllib.parse import unquote, urlsplit
 
@@ -20,10 +21,21 @@ from autohub.ingestion.adapters.base import (
     AdapterError,
     BrandAdapter,
     DiscoveredBrochure,
+    DiscoveredPrice,
     DiscoveryResult,
     PageFetcher,
 )
 from autohub.ingestion.html import extract_links
+from autohub.ingestion.prices import parse_price_range
+
+# Each model has a price page whose <title> prints the starting ex-showroom price, in one
+# of several wordings: "Tata Nexon Price in India - From ₹7.39 L* Onwards | TATA.CARS",
+# "Tata Punch Price - All New Tata Punch Price Starts at ₹ 5.74 Lakh*".
+_PRICE_PAGE = re.compile(r"^/([a-z0-9-]+)/ice/price\.html$")
+_SITEMAP_LOC = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>", re.IGNORECASE)
+_TITLE = re.compile(r"<title\b[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+_TITLE_MODEL = re.compile(r"^\s*Tata\s+(.+?)\s+Price\b", re.IGNORECASE)
+_TITLE_PRICE = re.compile(r"₹\s*\d[\d.,]*\s*(?:lakh|l\b)", re.IGNORECASE)
 
 _BROCHURE_PATH = re.compile(r"^/content/dam/tml/pv/products/([^/]+)/(?:[^/]+/)*([^/]+)\.pdf$", re.IGNORECASE)
 _HEADING_SUFFIX = re.compile(r"\s*\bbrochures?\b\s*$", re.IGNORECASE)
@@ -64,6 +76,7 @@ class TataAdapter(BrandAdapter):
     requires_browser: ClassVar[bool] = False
 
     listing_url: ClassVar[str] = "https://tata.cars/support/brochures.html"
+    sitemap_url: ClassVar[str] = "https://tata.cars/sitemap.xml"
 
     def discover(self, fetcher: PageFetcher) -> DiscoveryResult:
         result = DiscoveryResult()
@@ -123,5 +136,74 @@ class TataAdapter(BrandAdapter):
                 )
             )
         result.brochures.sort(key=lambda b: b.source_url)
+        self._discover_prices(fetcher, result, {slug for slug, _ in map(_parts_of, result.brochures)})
         result.pages_visited = fetcher.pages_visited
         return result
+
+    def _discover_prices(
+        self, fetcher: PageFetcher, result: DiscoveryResult, brochure_slugs: set[str]
+    ) -> None:
+        """Starting prices from the per-model price pages.
+
+        The sitemap lists the price pages. A model that has a brochure but no sitemap entry
+        (Aeris, on 2026-11-17) is tried at the same path; such a guess failing is not an error.
+        """
+        listed: list[str] = []
+        try:
+            sitemap = fetcher.get_html(self.sitemap_url)
+        except AdapterError as exc:
+            result.errors.append(exc)
+        else:
+            for loc in _SITEMAP_LOC.findall(sitemap):
+                url = unescape(loc)
+                if self.is_official(url) and _PRICE_PAGE.match(urlsplit(url).path) and url not in listed:
+                    listed.append(url)
+        guessed = [
+            url
+            for url in (f"{self.website_url}/{slug}/ice/price.html" for slug in sorted(brochure_slugs))
+            if url not in listed
+        ]
+        by_model: dict[str, DiscoveredPrice] = {}
+        for url in [*sorted(listed), *guessed]:
+            try:
+                html = fetcher.get_html(url)
+            except AdapterError as exc:
+                if url in listed:
+                    result.errors.append(exc)
+                continue
+            price = price_from_page(html, url)
+            if price is None:
+                continue
+            # Two paths can serve one model's page (a retired model's path showing its
+            # successor). Keep one entry per model, preferring the model's own path.
+            key = price.model_hint.lower()
+            own_path = url.split("/")[3].replace("-", "") == re.sub(r"[^a-z0-9]", "", key)
+            if key not in by_model or own_path:
+                by_model[key] = price
+        result.prices.extend(by_model.values())
+
+
+def _parts_of(brochure: DiscoveredBrochure) -> tuple[str, str]:
+    parts = brochure_parts(brochure.source_url)
+    assert parts is not None  # only brochure URLs are ever stored on the result
+    return parts
+
+
+def price_from_page(html: str, url: str) -> DiscoveredPrice | None:
+    """The starting price printed in a price page's title, or None if the title has none."""
+    title = _TITLE.search(html)
+    if title is None:
+        return None
+    text = " ".join(unescape(title.group(1)).split())
+    model = _TITLE_MODEL.search(text)
+    amount = _TITLE_PRICE.search(text)
+    parsed = parse_price_range(amount.group(0)) if amount else None
+    if model is None or parsed is None:
+        return None
+    return DiscoveredPrice(
+        brand=TataAdapter.brand_name,
+        model_hint=model.group(1).strip(),
+        price_min=parsed[0],
+        price_max=None,  # the site prints a starting price only
+        source_url=url,
+    )

@@ -38,6 +38,7 @@ from autohub.ingestion.downloader import BrochureDownloader, DownloadStatus
 from autohub.ingestion.extraction.extractor import BrochureExtractor
 from autohub.ingestion.fetcher import CrawlPolicy, PolitePageFetcher
 from autohub.ingestion.pdf_text import store_pages
+from autohub.ingestion.prices import apply_model_prices
 from autohub.ingestion.store import BrochureStore
 from autohub.ingestion.writer import write_extraction
 from autohub.jobs.locks import advisory_lock
@@ -244,6 +245,17 @@ class Pipeline:
             "pages": result.pages_visited,
             "errors": len(result.errors),
         }
+        if result.prices:
+            # Models are created by extraction, so a brand's first run has nothing to match yet;
+            # the names are reported and picked up by the next discovery.
+            priced = apply_model_prices(db, brand.id, result.prices, as_of=now.date())
+            db.commit()
+            stats.discover[adapter.key]["prices"] = {
+                "found": len(result.prices),
+                "updated": priced.updated,
+                "unchanged": priced.unchanged,
+                "unmatched": sorted(priced.unmatched),
+            }
 
     @staticmethod
     def _upsert_brochure(

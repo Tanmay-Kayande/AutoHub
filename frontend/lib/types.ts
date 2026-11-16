@@ -66,7 +66,11 @@ export interface ModelSummary {
   fuel_types: string[];
   transmission_types: string[];
   price_min: number | null;
+  /** null with a price_min means a starting price. */
   price_max: number | null;
+  /** Page the brand published the model's price on; null when the range comes from variant prices. */
+  price_source: string | null;
+  price_as_of: string | null;
   primary_image: VehicleImage | null;
   key_specs: KeySpecRange[];
 }

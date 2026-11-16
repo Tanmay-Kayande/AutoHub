@@ -21,6 +21,7 @@ New in V2:
 from __future__ import annotations
 
 import re
+from html import unescape
 from typing import ClassVar
 from urllib.parse import unquote, urlsplit, urlunsplit
 
@@ -28,10 +29,12 @@ from autohub.ingestion.adapters.base import (
     AdapterError,
     BrandAdapter,
     DiscoveredBrochure,
+    DiscoveredPrice,
     DiscoveryResult,
     PageFetcher,
 )
 from autohub.ingestion.html import Link, extract_links
+from autohub.ingestion.prices import parse_price_range
 
 # V1 exclusions: PDFs that mention "brochure" but are not the model's main brochure.
 EXCLUDE_KEYWORDS = ("accessories", "press", "release", "note", "range", "special", "merchandise")
@@ -49,6 +52,34 @@ _ACRONYMS = frozenset({"xuv", "ev", "suv"})
 _TOKEN_SPLIT = re.compile(r"[\s_\-.]+")
 _REVISION = re.compile(r"^(r\d+|\d+(st|nd|rd|th))$")  # "R3", "3rd": revision markers
 _CACHE_FINGERPRINT = re.compile(r"/dw[0-9a-f]{8}/")
+# A card in the site-wide model menu: the model name, then its ex-showroom range
+# ("₹13.69L - ₹25.49L") or single price ("₹17.49L").
+_PRICE_CARD = re.compile(
+    r'<span\b[^>]*\bclass="[^"]*\bcard-small\b[^"]*"[^>]*>([^<]+)</span>\s*'
+    r'<div\b[^>]*\bclass="[^"]*\bproduct-list-rangeinfo\b[^"]*"[^>]*>\s*<p\b[^>]*>([^<]+)</p>',
+    re.IGNORECASE,
+)
+# The menu labels the three-door Thar "THAR OG"; its page and brochure call it "Thar".
+_MENU_NAMES = {"thar og": "Thar"}
+
+
+def model_prices(html: str, page_url: str) -> list[DiscoveredPrice]:
+    """Prices from the model menu of a rendered page; entries without a readable price are skipped."""
+    found: dict[str, DiscoveredPrice] = {}
+    for raw_name, raw_price in _PRICE_CARD.findall(html):
+        name = " ".join(unescape(raw_name).split())
+        name = _MENU_NAMES.get(name.lower(), name)
+        parsed = parse_price_range(unescape(raw_price))
+        if not name or parsed is None or name in found:
+            continue
+        found[name] = DiscoveredPrice(
+            brand=MahindraAdapter.brand_name,
+            model_hint=name,
+            price_min=parsed[0],
+            price_max=parsed[1],
+            source_url=page_url,
+        )
+    return list(found.values())
 
 
 def canonical_brochure_url(url: str) -> str:
@@ -214,7 +245,11 @@ class MahindraAdapter(BrandAdapter):
     def _links(fetcher: PageFetcher, url: str, result: DiscoveryResult) -> list[Link]:
         """Links on one rendered page; a failing page is recorded and yields nothing."""
         try:
-            return extract_links(fetcher.get_rendered_html(url), url)
+            html = fetcher.get_rendered_html(url)
         except AdapterError as exc:
             result.errors.append(exc)
             return []
+        if not result.prices:
+            # The model menu, with its price ranges, is on every page; the first page that has it is enough.
+            result.prices = model_prices(html, url)
+        return extract_links(html, url)

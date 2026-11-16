@@ -174,6 +174,9 @@ def model_summaries(db: Session, models: Sequence[VehicleModel]) -> list[ModelSu
     for model in models:
         rows = variants_by_model.get(model.id, [])
         prices = [price for _, _, price in rows if price is not None]
+        # Variant prices are the precise ones; without any, show the range the brand
+        # publishes for the model (a starting price leaves price_max empty).
+        from_variants = bool(prices)
         summaries.append(
             ModelSummary(
                 id=model.id,
@@ -186,8 +189,10 @@ def model_summaries(db: Session, models: Sequence[VehicleModel]) -> list[ModelSu
                 variant_count=len(rows),
                 fuel_types=sorted({fuel for fuel, _, _ in rows if fuel}),
                 transmission_types=sorted({t for _, t, _ in rows if t}),
-                price_min=min(prices) if prices else None,
-                price_max=max(prices) if prices else None,
+                price_min=min(prices) if from_variants else model.price_min_ex_showroom,
+                price_max=max(prices) if from_variants else model.price_max_ex_showroom,
+                price_source=None if from_variants else model.price_source,
+                price_as_of=None if from_variants else model.price_as_of,
                 primary_image=images.get(model.id),
                 key_specs=key_specs.get(model.id, []),
             )

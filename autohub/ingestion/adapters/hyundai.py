@@ -8,6 +8,7 @@ an ``<h3>`` and a plain link to the brochure under
 from __future__ import annotations
 
 import re
+from html import unescape
 from typing import ClassVar
 from urllib.parse import unquote, urlsplit
 
@@ -15,13 +16,21 @@ from autohub.ingestion.adapters.base import (
     AdapterError,
     BrandAdapter,
     DiscoveredBrochure,
+    DiscoveredPrice,
     DiscoveryResult,
     PageFetcher,
 )
 from autohub.ingestion.html import extract_links
+from autohub.ingestion.prices import parse_price_range
 
 _BROCHURE_PATH = re.compile(r"^/content/dam/hyundai/in/en/data/brochure/([^/]+)\.pdf$", re.IGNORECASE)
 _ACRONYMS = frozenset({"ev", "hb", "sd", "nios", "suv"})
+# Each model card carries its ex-showroom price in a data attribute: a range in lakh
+# ("₹ 10.99 - 18.41"), one figure in lakh ("₹ 6.40") or rupees ("₹ 55 70 600").
+_CARD_TAG = re.compile(r'<div\b[^>]*\bclass="[^"]*\bcar-card\b[^"]*"[^>]*>', re.IGNORECASE)
+_DATA_PRICE = re.compile(r'\bdata-price="([^"]*)"', re.IGNORECASE)
+_CARD_TITLE = re.compile(r"<h3\b[^>]*>(.*?)</h3>", re.IGNORECASE | re.DOTALL)
+_TAG = re.compile(r"<[^>]+>")
 
 
 def brochure_slug(url: str) -> str | None:
@@ -57,6 +66,8 @@ class HyundaiAdapter(BrandAdapter):
             result.errors.append(exc)
             result.pages_visited = fetcher.pages_visited
             return result
+
+        result.prices = self.prices(html)
 
         seen: set[str] = set()
         for link in extract_links(html, self.listing_url, heading_tags=("h3",)):
@@ -98,3 +109,26 @@ class HyundaiAdapter(BrandAdapter):
         result.brochures.sort(key=lambda b: b.source_url)
         result.pages_visited = fetcher.pages_visited
         return result
+
+    def prices(self, html: str) -> list[DiscoveredPrice]:
+        """One price per model card that prints one; cards without a readable price are skipped."""
+        found: dict[str, DiscoveredPrice] = {}
+        cards = list(_CARD_TAG.finditer(html))
+        for index, card in enumerate(cards):
+            price_attr = _DATA_PRICE.search(card.group(0))
+            body_end = cards[index + 1].start() if index + 1 < len(cards) else len(html)
+            title = _CARD_TITLE.search(html, card.end(), body_end)
+            if price_attr is None or title is None:
+                continue
+            name = " ".join(unescape(_TAG.sub("", title.group(1))).split())
+            parsed = parse_price_range(unescape(price_attr.group(1)))
+            if not name or parsed is None or name in found:
+                continue
+            found[name] = DiscoveredPrice(
+                brand=self.brand_name,
+                model_hint=name,
+                price_min=parsed[0],
+                price_max=parsed[1],
+                source_url=self.listing_url,
+            )
+        return list(found.values())
