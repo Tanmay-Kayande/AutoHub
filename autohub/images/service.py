@@ -3,7 +3,10 @@
 - :func:`collect_images` searches for models that have fewer than the target
   number of usable images per category, within a per-run search budget, filters
   and validates candidates, and inserts them (``ON CONFLICT DO NOTHING`` on
-  ``(model_id, url_hash)``, so duplicates are impossible).
+  ``(model_id, url_hash)``, so duplicates are impossible). Empty slots are
+  searched before partly filled ones, and a slot whose search added nothing is
+  recorded as ``exhausted`` in the run stats and skipped by later runs for
+  ``images_retry_after_days`` (see :func:`recently_exhausted`).
 - :func:`validate_pending` checks stored URLs over plain HTTP (free) — this is
   also how migrated V1 images get a status (T-503).
 - :func:`choose_primary` keeps exactly one primary per model: the largest valid
@@ -15,7 +18,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select, update
@@ -23,7 +26,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from autohub.core.settings import get_settings
-from autohub.db.models import Brand, VehicleImage, VehicleModel
+from autohub.db.models import Brand, PipelineRun, VehicleImage, VehicleModel
 from autohub.images.filters import rejection_reason
 from autohub.images.provider import ImageQuotaError, ImageSearchError, ImageSearchProvider, get_image_provider
 from autohub.images.urls import domain_of, url_hash
@@ -41,6 +44,12 @@ CATEGORY_QUERIES: dict[str, str] = {
 SEARCH_RESULTS = 10
 USABLE = ("valid", "unvalidated")
 
+Slot = tuple[int, str]  # (model_id, category)
+
+
+def slot_key(model_id: int, category: str) -> str:
+    return f"{model_id}/{category}"
+
 
 @dataclass
 class ImageStats:
@@ -53,6 +62,8 @@ class ImageStats:
     broken: int = 0
     rejected: int = 0
     primaries_set: int = 0
+    skipped_recent: int = 0
+    exhausted: list[str] = field(default_factory=list)  # slot_key() of searches that added nothing
     errors: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
@@ -164,19 +175,42 @@ def collect_for_model(
 
 
 def models_needing_images(db: Session, brand_ids: list[int], target: int) -> list[tuple[VehicleModel, str]]:
+    """Slots below target, empty slots first; within each group exterior first, then by model."""
     models = db.execute(
         select(VehicleModel)
         .where(VehicleModel.brand_id.in_(brand_ids), VehicleModel.is_active.is_(True))
         .order_by(VehicleModel.id)
     ).scalars()
-    work: list[tuple[VehicleModel, str]] = []
+    work: list[tuple[bool, VehicleModel, str]] = []
     for model in models:
         for category in CATEGORY_QUERIES:  # exterior first: it decides the primary image
-            if _usable_count(db, model.id, category) < target:
-                work.append((model, category))
-    # Breadth first: every model's exterior before anyone's boot photos.
+            have = _usable_count(db, model.id, category)
+            if have < target:
+                work.append((have > 0, model, category))
+    # An empty slot is worth more than a fifth photo of a filled one; then breadth first:
+    # every model's exterior before anyone's boot photos.
     order = list(CATEGORY_QUERIES)
-    return sorted(work, key=lambda item: (order.index(item[1]), item[0].id))
+    work.sort(key=lambda item: (item[0], order.index(item[2]), item[1].id))
+    return [(model, category) for _, model, category in work]
+
+
+def recently_exhausted(db: Session, *, days: int, now: datetime | None = None) -> frozenset[Slot]:
+    """Slots that an images stage started within ``days`` searched without adding anything."""
+    if days <= 0:
+        return frozenset()
+    since = (now or datetime.now(UTC)) - timedelta(days=days)
+    rows = db.execute(
+        select(PipelineRun.stats["images"]["exhausted"]).where(
+            PipelineRun.started_at >= since, PipelineRun.stats.has_key("images")
+        )
+    ).scalars()
+    slots: set[Slot] = set()
+    for keys in rows:
+        for key in keys or ():
+            model_id, _, category = str(key).partition("/")
+            if model_id.isdigit() and category in CATEGORY_QUERIES:
+                slots.add((int(model_id), category))
+    return frozenset(slots)
 
 
 def collect_images(
@@ -187,16 +221,26 @@ def collect_images(
     provider: ImageSearchProvider,
     validator: ImageValidator,
     target: int,
+    skip: frozenset[Slot] = frozenset(),
 ) -> ImageStats:
     stats = ImageStats()
+    work: list[tuple[VehicleModel, str]] = []
     for model, category in models_needing_images(db, [b.id for b in brands], target):
+        if (model.id, category) in skip:
+            stats.skipped_recent += 1
+        else:
+            work.append((model, category))
+    for model, category in work:
         if stats.searches >= budget:
             break
+        inserted_before = stats.inserted
         try:
             collect_for_model(
                 db, model, category, provider=provider, validator=validator, target=target, stats=stats
             )
             db.commit()
+            if stats.inserted == inserted_before:
+                stats.exhausted.append(slot_key(model.id, category))
         except ImageQuotaError as exc:
             db.rollback()
             stats.errors.append(f"quota: {exc}")
@@ -282,5 +326,6 @@ def pipeline_stage(db: Session, *, brands: list[Brand], budget: int) -> dict[str
         provider=get_image_provider(settings),
         validator=ImageValidator(timeout_seconds=settings.http_timeout_seconds),
         target=settings.images_target_per_category,
+        skip=recently_exhausted(db, days=settings.images_retry_after_days),
     )
     return stats.as_dict()

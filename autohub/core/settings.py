@@ -73,6 +73,8 @@ class Settings(BaseSettings):
     pipeline_max_image_searches_per_run: int = Field(default=20, ge=0)
     pipeline_cron: str = "0 3 1 * *"  # 03:00 UTC on the 1st of each month
     images_target_per_category: int = Field(default=5, ge=1)
+    # A slot whose last search added nothing is not searched again for this many days.
+    images_retry_after_days: int = Field(default=30, ge=0)
 
     # --- API ---
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"

@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from autohub.db.models import VehicleImage
+from autohub.db.models import PipelineRun, VehicleImage
 from autohub.images.provider import FakeImageSearchProvider, ImageCandidate
-from autohub.images.service import choose_primary, collect_images, validate_pending
+from autohub.images.service import (
+    CATEGORY_QUERIES,
+    choose_primary,
+    collect_images,
+    recently_exhausted,
+    slot_key,
+    validate_pending,
+)
 from autohub.images.urls import url_hash
 from autohub.images.validator import Validation
 from tests.factories import make_brand, make_image, make_model
@@ -34,7 +43,7 @@ def test_collect_inserts_filters_validates_and_sets_primary(db: Session) -> None
     brand = make_brand(db)
     brand.website_url = "https://www.testa.example/"
     model = make_model(db, brand)
-    make_model(db, brand, "Model R")
+    other = make_model(db, brand, "Model R")
     provider = FakeImageSearchProvider(
         {
             "Testa Model Q exterior": [
@@ -65,8 +74,15 @@ def test_collect_inserts_filters_validates_and_sets_primary(db: Session) -> None
     assert official.is_primary and official.source_kind == "image_search"  # official beats bigger
     assert sum(i.is_primary for i in images) == 1
 
-    again = collect_images(db, brands=[brand], budget=1, provider=provider, validator=validator, target=5)
+    # Empty slots now come first; skip them to re-search Model Q's partly filled exterior.
+    empty = frozenset((model.id, c) for c in CATEGORY_QUERIES if c != "exterior")
+    other.is_active = False
+    db.flush()
+    again = collect_images(
+        db, brands=[brand], budget=1, provider=provider, validator=validator, target=5, skip=empty
+    )
     assert again.inserted == 0 and again.duplicates == 2
+    assert again.exhausted == [f"{model.id}/exterior"]
 
 
 def test_budget_and_target_limit_searches(db: Session) -> None:
@@ -82,6 +98,58 @@ def test_budget_and_target_limit_searches(db: Session) -> None:
         "Testa Model Q dashboard",
         "Testa Model Q rear seat",
     ]
+
+
+def test_empty_slots_are_searched_before_partly_filled_ones(db: Session) -> None:
+    brand = make_brand(db)
+    model = make_model(db, brand)
+    make_image(db, model, "https://cdn.example.com/e.jpg")  # exterior 1 of 3: partly filled
+    make_image(db, model, "https://cdn.example.com/i.jpg", category="interior")
+    provider = FakeImageSearchProvider()
+    collect_images(db, brands=[brand], budget=3, provider=provider, validator=FakeValidator(), target=3)
+    assert provider.queries == [
+        "Testa Model Q dashboard",
+        "Testa Model Q rear seat",
+        "Testa Model Q boot space",
+    ]
+
+
+def test_search_without_new_images_is_recorded_and_skipped_later(db: Session) -> None:
+    brand = make_brand(db)
+    model = make_model(db, brand)
+    provider = FakeImageSearchProvider(
+        {"Testa Model Q exterior": [cand("https://cdn.example.com/front.jpg")]}
+    )
+    stats = collect_images(
+        db, brands=[brand], budget=2, provider=provider, validator=FakeValidator(), target=3
+    )
+    assert stats.inserted == 1
+    assert stats.exhausted == [slot_key(model.id, "interior")]  # exterior added one, interior none
+
+    now = datetime.now(UTC)
+    db.add(PipelineRun(trigger="cli", status="succeeded", stats={"images": stats.as_dict()}))
+    db.add(  # outside the window: ignored
+        PipelineRun(
+            trigger="cli",
+            status="succeeded",
+            stats={"images": {"exhausted": [slot_key(model.id, "dashboard")]}},
+            started_at=now - timedelta(days=40),
+        )
+    )
+    db.add(
+        PipelineRun(trigger="cli", status="succeeded", stats={"images": {"skipped": "stage not configured"}})
+    )
+    db.flush()
+    skip = recently_exhausted(db, days=30, now=now)
+    assert skip == {(model.id, "interior")}
+    assert recently_exhausted(db, days=0, now=now) == frozenset()
+
+    later = FakeImageSearchProvider()
+    again = collect_images(
+        db, brands=[brand], budget=2, provider=later, validator=FakeValidator(), target=3, skip=skip
+    )
+    assert again.skipped_recent == 1
+    assert later.queries == ["Testa Model Q dashboard", "Testa Model Q rear seat"]
 
 
 def test_duplicate_insert_is_impossible(db: Session) -> None:
