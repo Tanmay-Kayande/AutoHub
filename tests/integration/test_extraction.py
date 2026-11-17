@@ -386,6 +386,27 @@ def test_fuel_specific_specs_are_skipped_for_other_fuels(db: Session, tmp_path: 
     assert summary.not_applicable_skipped == 1 and summary.result.written == 0
 
 
+def test_ev_without_printed_gearbox_is_single_speed_but_ice_stays_unknown(
+    db: Session, tmp_path: Path
+) -> None:
+    env = Env(
+        db,
+        tmp_path,
+        [
+            extraction(
+                [
+                    variant("AX5", [spec("wheelbase", "2600 mm")], fuel="Electric"),
+                    variant("Base Petrol", [spec("wheelbase", "2600 mm")], fuel="Petrol"),
+                ]
+            )
+        ],
+    )
+    env.run()
+    rows = {v.name: v for v in db.execute(select(Variant)).scalars()}
+    assert rows["AX5"].transmission_type == "single_speed" and rows["AX5"].transmission_raw is None
+    assert rows["Base Petrol"].transmission_type is None
+
+
 def test_common_only_extraction_applies_to_existing_variants(db: Session, tmp_path: Path) -> None:
     env = Env(db, tmp_path, [extraction([], common=[spec("wheelbase", "2750 mm")])])
     model = make_model(db, env.brand)
