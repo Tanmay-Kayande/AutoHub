@@ -40,6 +40,13 @@ class SlidingWindowLimiter:
                     del self._hits[stale]
             return 0
 
+    def refund(self, key: str) -> None:
+        """Give back the most recent hit of ``key`` (the request it paid for did not complete)."""
+        with self._lock:
+            hits = self._hits.get(key)
+            if hits:
+                hits.pop()
+
     def reset(self) -> None:
         with self._lock:
             self._hits.clear()
@@ -48,7 +55,7 @@ class SlidingWindowLimiter:
 limiter = SlidingWindowLimiter()
 
 
-def _client_key(request: Request) -> str:
+def client_key(request: Request) -> str:
     # The client address only. The Authorization header is not verified at this point, so
     # keying on it would let a caller send a made-up token per request and never be limited.
     # Behind a reverse proxy, run uvicorn with --proxy-headers and --forwarded-allow-ips set
@@ -62,7 +69,7 @@ def rate_limit(scope: str, limit: int, window_seconds: float = 60.0) -> Callable
     def dependency(request: Request) -> None:
         if not get_settings().rate_limit_enabled:
             return
-        retry_after = limiter.check(f"{scope}:{_client_key(request)}", limit, window_seconds)
+        retry_after = limiter.check(f"{scope}:{client_key(request)}", limit, window_seconds)
         if retry_after:
             raise RateLimitedError(retry_after)
 

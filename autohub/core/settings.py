@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     # A slot whose last search added nothing is not searched again for this many days.
     images_retry_after_days: int = Field(default=30, ge=0)
 
+    # Assistant questions per client per rolling 24 h without signing in (0: sign-in required).
+    assistant_anonymous_questions: int = Field(default=2, ge=0)
+
     # --- API ---
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     scheduler_enabled: bool = True

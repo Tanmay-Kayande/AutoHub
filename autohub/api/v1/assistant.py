@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from functools import lru_cache
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -19,8 +19,9 @@ from autohub.assistant.llm import LLMError, LLMProvider, LLMQuotaError, get_llm_
 from autohub.assistant.schemas import AssistantContext
 from autohub.assistant.service import AssistantReply, ask
 from autohub.auth.deps import current_user, optional_user
-from autohub.core.errors import NotFoundError, UpstreamError, UpstreamUnavailableError
-from autohub.core.ratelimit import rate_limit
+from autohub.core.errors import LoginRequiredError, NotFoundError, UpstreamError, UpstreamUnavailableError
+from autohub.core.ratelimit import SlidingWindowLimiter, client_key, rate_limit
+from autohub.core.settings import get_settings
 from autohub.db.models import Brand, Conversation, Message, User, VehicleModel
 from autohub.db.session import get_db
 from autohub.search.embedder import EmbeddingProvider
@@ -28,6 +29,29 @@ from autohub.search.embedder import EmbeddingProvider
 router = APIRouter(prefix="/assistant", tags=["assistant"])
 _limit = Depends(rate_limit("assistant", limit=20))
 HISTORY_MESSAGES = 6
+
+# Questions asked without signing in, per client address over a rolling day. In-process
+# like the rate limiter (KI-06): a restart or a second instance starts a fresh count.
+anonymous_questions = SlidingWindowLimiter()
+ANONYMOUS_WINDOW_SECONDS = 24 * 3600
+
+
+def anonymous_quota(request: Request, user: User | None = Depends(optional_user)) -> str | None:
+    """Reserve one of the questions allowed without an account.
+
+    Returns the key to refund if the question then fails, or ``None`` for a signed-in user.
+    """
+    if user is not None:
+        return None
+    limit = get_settings().assistant_anonymous_questions
+    key = client_key(request)
+    if limit == 0 or anonymous_questions.check(key, limit, ANONYMOUS_WINDOW_SECONDS):
+        raise LoginRequiredError(
+            f"Log in or sign up to keep asking. Without an account you can ask {limit} questions a day."
+            if limit
+            else "Log in or sign up to ask the assistant."
+        )
+    return key
 
 
 @lru_cache(maxsize=1)
@@ -76,6 +100,22 @@ def _history(db: Session, conversation: Conversation) -> list[tuple[str, str]]:
 
 
 def _run(
+    db: Session,
+    data: AskIn,
+    user: User | None,
+    provider: LLMProvider,
+    embedder: EmbeddingProvider | None,
+    quota_key: str | None = None,
+) -> tuple[Conversation, Message, AssistantReply]:
+    try:
+        return _answer(db, data, user, provider, embedder)
+    except Exception:
+        if quota_key is not None:  # an unanswered question does not use up the allowance
+            anonymous_questions.refund(quota_key)
+        raise
+
+
+def _answer(
     db: Session, data: AskIn, user: User | None, provider: LLMProvider, embedder: EmbeddingProvider | None
 ) -> tuple[Conversation, Message, AssistantReply]:
     conversation = _conversation(db, data.conversation_id, user, data)
@@ -136,8 +176,9 @@ def ask_question(
     user: User | None = Depends(optional_user),
     provider: LLMProvider = Depends(assistant_provider),
     embedder: EmbeddingProvider | None = Depends(query_embedder),
+    quota_key: str | None = Depends(anonymous_quota),
 ) -> AskOut:
-    return _out(*_run(db, data, user, provider, embedder))
+    return _out(*_run(db, data, user, provider, embedder, quota_key))
 
 
 def _event(name: str, payload: Any) -> str:
@@ -151,12 +192,13 @@ def ask_stream(
     user: User | None = Depends(optional_user),
     provider: LLMProvider = Depends(assistant_provider),
     embedder: EmbeddingProvider | None = Depends(query_embedder),
+    quota_key: str | None = Depends(anonymous_quota),
 ) -> StreamingResponse:
     """Server-Sent Events: ``plan``, ``evidence``, one ``segment`` per answer part, then ``done`` or ``error``."""
 
     def events() -> Iterator[str]:
         try:
-            out = _out(*_run(db, data, user, provider, embedder))
+            out = _out(*_run(db, data, user, provider, embedder, quota_key))
         except (UpstreamError, UpstreamUnavailableError, NotFoundError) as exc:
             yield _event("error", {"code": exc.code, "message": exc.message})
             return
