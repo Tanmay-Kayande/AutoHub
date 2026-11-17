@@ -2,13 +2,18 @@
 import type {
   Brand,
   BrandDetail,
+  Brochure,
   CompareOut,
   Conversation,
   ModelDetail,
   ModelSummary,
   News,
   Page,
+  PipelineRun,
+  SearchOut,
   SpecCategory,
+  StructuredOut,
+  StructuredQuery,
   Token,
   User,
   VariantDetail,
@@ -74,6 +79,7 @@ export async function request<T>(
 }
 
 const CATALOGUE_TTL = 60;
+const JSON_BODY = { "Content-Type": "application/json" };
 
 export const api = {
   brands: (q?: string) => request<Page<Brand>>("/brands", { query: { q, page_size: 100 }, revalidate: CATALOGUE_TTL }),
@@ -107,7 +113,40 @@ export const api = {
       body: JSON.stringify(data),
     }),
   me: (token: string) => request<User>("/auth/me", { token }),
+  updateMe: (
+    token: string,
+    data: { name?: string; location?: string | null; gender?: string | null; current_password?: string; new_password?: string },
+  ) => request<User>("/auth/me", { method: "PATCH", token, headers: JSON_BODY, body: JSON.stringify(data) }),
   conversations: (token: string) => request<Conversation[]>("/assistant/conversations", { token }),
+
+  search: (q: string, mode: "hybrid" | "keyword" = "hybrid", limit = 20) =>
+    request<SearchOut>("/search", { query: { q, mode, limit } }),
+  structured: (query: StructuredQuery) =>
+    request<StructuredOut>("/search/structured", { method: "POST", headers: JSON_BODY, body: JSON.stringify(query) }),
+
+  admin: {
+    users: (token: string, page = 1) => request<Page<User>>("/admin/users", { token, query: { page, page_size: 50 } }),
+    setUserActive: (token: string, id: number, isActive: boolean) =>
+      request<User>(`/admin/users/${id}`, {
+        method: "PATCH",
+        token,
+        headers: JSON_BODY,
+        body: JSON.stringify({ is_active: isActive }),
+      }),
+    pipelineRuns: (token: string, page = 1) =>
+      request<Page<PipelineRun>>("/admin/pipeline/runs", { token, query: { page, page_size: 20 } }),
+    startPipeline: (
+      token: string,
+      body: { brands?: string[] | null; stages: string[]; limits: { max_extractions?: number | null; max_image_searches?: number | null } },
+    ) =>
+      request<{ run_id: number }>("/admin/pipeline/run", {
+        method: "POST",
+        token,
+        headers: JSON_BODY,
+        body: JSON.stringify(body),
+      }),
+    brochures: (token: string) => request<Brochure[]>("/admin/brochures", { token }),
+  },
 };
 
 export function streamUrl(): string {
