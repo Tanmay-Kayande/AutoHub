@@ -8,6 +8,7 @@ import { motion, useMotionValueEvent, useReducedMotion, useScroll, useTransform,
 import { useEffect, useRef, useState } from "react";
 
 import { SmartImage } from "@/components/ui/SmartImage";
+import { externalHref } from "@/lib/format";
 import type { VehicleImage } from "@/lib/types";
 
 /** Scroll offsets must lie in [0, 1] and never decrease (Web Animations keyframe offsets). */
@@ -37,8 +38,8 @@ function Caption({ image, index, total }: { image: VehicleImage; index: number; 
       </span>
       <span className="mx-2">·</span>
       {image.is_official ? <span className="text-accent">Official · </span> : null}
-      {image.source_page_url ? (
-        <a href={image.source_page_url} target="_blank" rel="noreferrer" className="hover:text-text">
+      {externalHref(image.source_page_url) ? (
+        <a href={externalHref(image.source_page_url)} target="_blank" rel="noreferrer" className="hover:text-text">
           {image.source_domain ?? "source"}
         </a>
       ) : (

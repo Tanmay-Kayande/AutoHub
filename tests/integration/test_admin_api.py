@@ -241,3 +241,47 @@ def test_news_lifecycle_with_related_vehicles(
     assert client.patch(f"{API}/news/{news['id']}", headers=admin, json={"title": None}).status_code == 422
     assert client.delete(f"{API}/news/{news['id']}", headers=admin).status_code == 204
     assert client.get(f"{API}/news/{news['id']}").status_code == 404
+
+
+BAD_URLS = [
+    "javascript:alert(document.cookie)",
+    "JAVASCRIPT:alert(1)",
+    "data:text/html;base64,PHNjcmlwdD4=",
+    "//evil.example/x",
+    "/relative/path",
+    "https://",
+    "https://exa mple.com/x",
+    "https://example.com/\nx",
+    "ftp://example.com/x",
+    "https://example.com/" + "a" * 2048,
+]
+
+
+@pytest.mark.parametrize("url", BAD_URLS)
+def test_admin_urls_must_be_absolute_http(
+    client: Any, people: dict[str, dict[str, str]], db: Session, url: str
+) -> None:
+    admin = people["admin"]
+    brand = make_brand(db)
+    variant = make_variant(db, make_model(db, brand), "V")
+    rejected = [
+        client.post(f"{API}/news", headers=admin, json={**NEWS, "source_url": url}),
+        client.post(f"{API}/news", headers=admin, json={**NEWS, "image_urls": [url]}),
+        client.post(f"{API}/admin/brands", headers=admin, json={"name": "Novus", "logo_url": url}),
+        client.patch(f"{API}/admin/brands/{brand.id}", headers=admin, json={"website_url": url}),
+        client.put(
+            f"{API}/admin/variants/{variant.id}/specs/ground_clearance",
+            headers=admin,
+            json={"value_num": 200, "unit": "mm", "source_url": url},
+        ),
+    ]
+    assert [r.status_code for r in rejected] == [422] * 5
+
+
+def test_admin_url_is_trimmed_and_kept_as_given(client: Any, people: dict[str, dict[str, str]]) -> None:
+    created = client.post(
+        f"{API}/news",
+        headers=people["admin"],
+        json={**NEWS, "source_url": "  HTTPS://News.Example.com/a?b=1#c  "},
+    )
+    assert created.status_code == 201 and created.json()["source_url"] == "HTTPS://News.Example.com/a?b=1#c"

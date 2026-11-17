@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 import { ErrorState } from "@/components/ui/States";
 import { SmartImage } from "@/components/ui/SmartImage";
 import { api, ApiError } from "@/lib/api";
-import { formatDate, modelHref } from "@/lib/format";
+import { externalHref, formatDate, modelHref } from "@/lib/format";
 
 type Params = Promise<{ id: string }>;
 
@@ -47,8 +47,8 @@ export default async function NewsItemPage({ params }: { params: Params }) {
         <SmartImage src={item.news_images[0].image_url} alt={item.title} className="mt-8 aspect-[16/9] w-full rounded-2xl" />
       ) : null}
       <div className="mt-8 whitespace-pre-line leading-relaxed text-text/90">{item.content}</div>
-      {item.source_url ? (
-        <a href={item.source_url} target="_blank" rel="noreferrer" className="mt-6 inline-block text-sm text-accent hover:underline">
+      {externalHref(item.source_url) ? (
+        <a href={externalHref(item.source_url)} target="_blank" rel="noreferrer" className="mt-6 inline-block text-sm text-accent hover:underline">
           Read at the source ↗
         </a>
       ) : null}

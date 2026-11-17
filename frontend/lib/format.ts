@@ -63,3 +63,14 @@ export function formatDate(iso: string): string {
 export function modelHref(brandSlug: string, modelSlug: string): string {
   return `/cars/${brandSlug}/${modelSlug}`;
 }
+
+/** The URL if it is an absolute http(s) address, else undefined: never put other schemes in an href. */
+export function externalHref(url: unknown): string | undefined {
+  if (typeof url !== "string") return undefined;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : undefined;
+  } catch {
+    return undefined;
+  }
+}

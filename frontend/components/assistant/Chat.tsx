@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { sourceLabel } from "@/lib/format";
+import { externalHref, sourceLabel } from "@/lib/format";
 import { askStream } from "@/lib/stream";
 import type { AnswerSegment, Evidence } from "@/lib/types";
 
@@ -36,8 +36,8 @@ function EvidenceItem({ item, anchor }: { item: Evidence; anchor: string }) {
           {item.kind === "note" ? "Not in AutoHub's data" : item.kind === "catalogue" ? "AutoHub catalogue" : sourceLabel(source.type)}
           {source.page ? ` · page ${source.page}` : ""}
         </span>
-        {source.url ? (
-          <a href={String(source.url)} target="_blank" rel="noreferrer" className="ml-auto text-accent hover:underline">
+        {externalHref(source.url) ? (
+          <a href={externalHref(source.url)} target="_blank" rel="noreferrer" className="ml-auto text-accent hover:underline">
             Brochure ↗
           </a>
         ) : null}
