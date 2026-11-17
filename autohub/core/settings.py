@@ -32,6 +32,9 @@ class Settings(BaseSettings):
 
     # --- required ---
     database_url: str
+    # Schema owner used only by Alembic. The app connects with DATABASE_URL, which should be
+    # a role without DDL rights (see tools/provision_app_role.py). Unset: Alembic uses DATABASE_URL.
+    migration_database_url: str | None = None
     # HS256 tokens signed with a short key can be brute-forced offline and then forged.
     secret_key: SecretStr = Field(min_length=32)
 

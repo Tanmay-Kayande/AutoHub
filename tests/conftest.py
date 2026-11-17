@@ -39,6 +39,8 @@ os.environ.update(
     {
         "ENVIRONMENT": "test",
         "DATABASE_URL": TEST_DATABASE_URL,
+        # Alembic prefers this over DATABASE_URL; a dev value in .env must never reach the tests.
+        "MIGRATION_DATABASE_URL": TEST_DATABASE_URL,
         "SECRET_KEY": "test-only-secret-key-not-used-anywhere-else",
         "GEMINI_API_KEY": "",  # never reach a paid API from tests
         "SERPAPI_KEY": "",
