@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { BrandModels } from "@/components/vehicle/BrandModels";
 import { ErrorState } from "@/components/ui/States";
 import { api, ApiError } from "@/lib/api";
+import { externalHref } from "@/lib/format";
 
 type Params = Promise<{ brand: string }>;
 
@@ -34,8 +35,8 @@ export default async function BrandPage({ params }: { params: Params }) {
       <p className="text-xs uppercase tracking-[0.2em] text-accent">{brand.country ?? "Brand"}</p>
       <h1 className="mt-2 font-display text-4xl font-semibold tracking-tight sm:text-5xl">{brand.name}</h1>
       {brand.description ? <p className="mt-4 max-w-2xl text-muted">{brand.description}</p> : null}
-      {brand.website_url ? (
-        <a href={brand.website_url} target="_blank" rel="noreferrer" className="mt-3 inline-block text-sm text-accent hover:underline">
+      {externalHref(brand.website_url) ? (
+        <a href={externalHref(brand.website_url)} target="_blank" rel="noreferrer" className="mt-3 inline-block text-sm text-accent hover:underline">
           Official website ↗
         </a>
       ) : null}

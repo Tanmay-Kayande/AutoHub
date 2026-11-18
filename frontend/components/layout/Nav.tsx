@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth";
 
 const LINKS = [
   { href: "/brands", label: "Brands" },
+  { href: "/search", label: "Search" },
   { href: "/compare", label: "Compare" },
   { href: "/ask", label: "Ask AutoHub" },
   { href: "/news", label: "News" },
@@ -39,6 +40,11 @@ export function Nav() {
         <div className="hidden items-center gap-3 md:flex">
           {ready && user ? (
             <>
+              {user.role === "admin" ? (
+                <Link href="/admin" className={linkClass("/admin")}>
+                  Admin
+                </Link>
+              ) : null}
               <Link href="/profile" className="text-sm text-muted hover:text-text">
                 {user.name}
               </Link>
@@ -79,6 +85,11 @@ export function Nav() {
           <div className="mt-2 flex gap-4 border-t border-line pt-3 text-sm">
             {user ? (
               <>
+                {user.role === "admin" ? (
+                  <Link href="/admin" onClick={() => setOpen(false)}>
+                    Admin
+                  </Link>
+                ) : null}
                 <Link href="/profile" onClick={() => setOpen(false)}>
                   {user.name}
                 </Link>

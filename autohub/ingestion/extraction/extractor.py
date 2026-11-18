@@ -29,7 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from autohub.assistant.llm import LLMError, LLMOutputError, LLMProvider
-from autohub.db.models import Brochure, BrochureVersion, ExtractionRun
+from autohub.db.models import Brochure, BrochurePage, BrochureVersion, ExtractionRun
 from autohub.ingestion.extraction.prompt import prompt_version, system_prompt, user_prompt
 from autohub.ingestion.extraction.schema import BrochureExtraction, ExtractedSpec
 from autohub.ingestion.store import BrochureStore
@@ -37,8 +37,13 @@ from autohub.specs.taxonomy import get_spec
 
 logger = logging.getLogger(__name__)
 
-EXTRACTION_MAX_OUTPUT_TOKENS = 32768
+# gemini-2.5-flash's output ceiling. Brochures with many variants (Scorpio N, Thar Roxx,
+# XUV 3XO) were cut off at 32768; a lower cap only saves tokens on outputs that then fail.
+EXTRACTION_MAX_OUTPUT_TOKENS = 65536
 RAW_TEXT_LIMIT = 200_000
+# Gemini accepts PDFs up to 50 MB. A larger brochure (image-heavy, e.g. the 63 MB Tata
+# Tiago file) is sent as its stored page text instead; page numbers are kept in the text.
+PDF_UPLOAD_LIMIT_BYTES = 50 * 1024 * 1024
 
 
 @dataclass
@@ -94,11 +99,22 @@ class BrochureExtractor:
         self.max_output_tokens = max_output_tokens
 
     def needs_extraction(self, db: Session, version: BrochureVersion) -> bool:
-        """False when this version already has a succeeded (or empty) run for this prompt and model."""
+        """False when this content already has a succeeded (or empty) run for this prompt and model.
+
+        Content means the file's digest within the brand, not the version row: a site can
+        publish one PDF under two links (Tata's "Aeris" and "Aeris iCNG" brochures are the
+        same file), and extracting it twice would spend a request to write the same values.
+        """
+        brand_id = db.execute(
+            select(Brochure.brand_id).where(Brochure.id == version.brochure_id)
+        ).scalar_one()
         done = db.execute(
             select(ExtractionRun.id)
+            .join(BrochureVersion, BrochureVersion.id == ExtractionRun.brochure_version_id)
+            .join(Brochure, Brochure.id == BrochureVersion.brochure_id)
             .where(
-                ExtractionRun.brochure_version_id == version.id,
+                BrochureVersion.sha256 == version.sha256,
+                Brochure.brand_id == brand_id,
                 ExtractionRun.prompt_version == prompt_version(),
                 ExtractionRun.llm_model == self.provider.model,
                 ExtractionRun.status.in_(("succeeded", "empty")),
@@ -129,12 +145,30 @@ class BrochureExtractor:
         if not path.is_file():
             return self._finish(db, outcome, "failed", "file_missing", f"stored file {path.name} not found")
 
+        prompt = user_prompt(brand=brochure.brand.name, model_hint=brochure.model_hint)
+        files = [path]
+        if path.stat().st_size > PDF_UPLOAD_LIMIT_BYTES:
+            page_text = self._page_text(db, version)
+            if not page_text:
+                return self._finish(
+                    db,
+                    outcome,
+                    "failed",
+                    "file_too_large",
+                    f"{path.stat().st_size} bytes exceeds the PDF upload limit and the file has no text layer",
+                )
+            files = []
+            prompt = (
+                f"{prompt}\n\nThe PDF is too large to attach. Its text follows, page by page; "
+                f"each page starts with a [Page N] line.\n\n{page_text}"
+            )
+
         try:
             result = self.provider.generate_structured(
                 system=system_prompt(),
-                prompt=user_prompt(brand=brochure.brand.name, model_hint=brochure.model_hint),
+                prompt=prompt,
                 schema=BrochureExtraction,
-                files=[path],
+                files=files,
                 max_output_tokens=self.max_output_tokens,
             )
         except LLMOutputError as exc:
@@ -160,6 +194,16 @@ class BrochureExtractor:
             )
         outcome.extraction = extraction
         return self._finish(db, outcome, "succeeded", None, None)
+
+    @staticmethod
+    def _page_text(db: Session, version: BrochureVersion) -> str:
+        """The version's stored page text with page markers, or "" if it has none."""
+        rows = db.execute(
+            select(BrochurePage.page_number, BrochurePage.content)
+            .where(BrochurePage.brochure_version_id == version.id)
+            .order_by(BrochurePage.page_number)
+        ).all()
+        return "\n\n".join(f"[Page {number}]\n{content}" for number, content in rows if content.strip())
 
     @staticmethod
     def _finish(

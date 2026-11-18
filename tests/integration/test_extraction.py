@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from autohub.assistant.llm import FakeLLMProvider, LLMOutputError, LLMQuotaError, LLMTimeoutError
 from autohub.db.models import (
     Brochure,
+    BrochurePage,
     BrochureVersion,
     ExtractionRun,
     SpecDefinition,
@@ -22,6 +23,7 @@ from autohub.db.models import (
     VariantSpecHistory,
     VehicleModel,
 )
+from autohub.ingestion.extraction import extractor as extractor_module
 from autohub.ingestion.extraction.extractor import BrochureExtractor
 from autohub.ingestion.extraction.prompt import prompt_version
 from autohub.ingestion.store import BrochureStore
@@ -230,6 +232,77 @@ def test_needs_extraction_is_keyed_on_version_prompt_and_model(db: Session, tmp_
     assert runs == ["failed", "succeeded"]
 
 
+def test_same_file_under_another_link_of_the_brand_is_not_extracted_again(
+    db: Session, tmp_path: Path
+) -> None:
+    env = Env(db, tmp_path, [extraction([variant("LX", [spec("length", "4 m")])])])
+    twin = Brochure(
+        brand_id=env.brand.id,
+        adapter="testa",
+        source_url="https://www.testa.example/q-cng.pdf",
+        layout_group="q-cng",
+    )
+    other_brand = Brochure(
+        brand_id=make_brand(db, name="Otherco").id,
+        adapter="other",
+        source_url="https://www.other.example/q.pdf",
+        layout_group="q",
+    )
+    db.add_all([twin, other_brand])
+    db.flush()
+    versions = [
+        BrochureVersion(
+            brochure_id=b.id,
+            sha256=env.version.sha256,
+            file_path=env.version.file_path,
+            file_size=env.version.file_size,
+            page_count=20,
+            has_text_layer=True,
+        )
+        for b in (twin, other_brand)
+    ]
+    db.add_all(versions)
+    db.flush()
+    assert env.extractor.needs_extraction(db, versions[0])
+    env.run()
+    assert not env.extractor.needs_extraction(db, versions[0])
+    # Identical bytes under a different brand are a different brochure.
+    assert env.extractor.needs_extraction(db, versions[1])
+
+
+def test_pdf_over_the_upload_limit_is_sent_as_page_text(
+    db: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(extractor_module, "PDF_UPLOAD_LIMIT_BYTES", len(PDF) - 1)
+    env = Env(db, tmp_path, [extraction([variant("LX", [spec("length", "4 m")])])])
+    db.add_all(
+        [
+            BrochurePage(
+                brochure_version_id=env.version.id, page_number=2, content="Length 4 m", char_count=10
+            ),
+            BrochurePage(brochure_version_id=env.version.id, page_number=1, content="Cover", char_count=5),
+            BrochurePage(brochure_version_id=env.version.id, page_number=3, content="  ", char_count=2),
+        ]
+    )
+    db.flush()
+    outcome, _ = env.run()
+    assert outcome.run.status == "succeeded"
+    call = env.provider.calls[0]
+    assert call.files == ()
+    assert call.prompt.endswith("[Page 1]\nCover\n\n[Page 2]\nLength 4 m")
+    assert "[Page 3]" not in call.prompt
+
+
+def test_pdf_over_the_upload_limit_without_text_fails_without_calling_the_provider(
+    db: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(extractor_module, "PDF_UPLOAD_LIMIT_BYTES", len(PDF) - 1)
+    env = Env(db, tmp_path, [])
+    outcome, _ = env.run()
+    assert outcome.run.status == "failed" and outcome.run.error_type == "file_too_large"
+    assert env.provider.calls == []
+
+
 # ---------------------------------------------------------------- writer
 def test_existing_model_is_matched_despite_spacing(db: Session, tmp_path: Path) -> None:
     env = Env(
@@ -311,6 +384,27 @@ def test_fuel_specific_specs_are_skipped_for_other_fuels(db: Session, tmp_path: 
     )
     _, summary = env.run()
     assert summary.not_applicable_skipped == 1 and summary.result.written == 0
+
+
+def test_ev_without_printed_gearbox_is_single_speed_but_ice_stays_unknown(
+    db: Session, tmp_path: Path
+) -> None:
+    env = Env(
+        db,
+        tmp_path,
+        [
+            extraction(
+                [
+                    variant("AX5", [spec("wheelbase", "2600 mm")], fuel="Electric"),
+                    variant("Base Petrol", [spec("wheelbase", "2600 mm")], fuel="Petrol"),
+                ]
+            )
+        ],
+    )
+    env.run()
+    rows = {v.name: v for v in db.execute(select(Variant)).scalars()}
+    assert rows["AX5"].transmission_type == "single_speed" and rows["AX5"].transmission_raw is None
+    assert rows["Base Petrol"].transmission_type is None
 
 
 def test_common_only_extraction_applies_to_existing_variants(db: Session, tmp_path: Path) -> None:

@@ -6,7 +6,7 @@ AutoHub is a car research platform built on specifications taken from official m
 
 ## What it does
 
-- **Ingestion.** Brand adapters (Mahindra, Hyundai) discover brochure PDFs on official sites under a polite crawl policy: `robots.txt`, per-host spacing, official domains only, TLS always verified. Downloads use conditional GET and a content-addressed store, so an unchanged brochure is never fetched or processed twice.
+- **Ingestion.** Brand adapters (Mahindra, Hyundai, Tata) discover brochure PDFs on official sites under a polite crawl policy: `robots.txt`, per-host spacing, official domains only, TLS always verified. Downloads use conditional GET and a content-addressed store, so an unchanged brochure is never fetched or processed twice.
 - **Extraction.** Each new brochure version is sent to the LLM with a schema built from the spec taxonomy (114 definitions). Values are normalised to canonical units and written under a guarded rule: a weaker or emptier source never overwrites a better value, and every replacement is kept in history.
 - **Catalogue API.** Brands, models, variants, specs grouped by category, side-by-side comparison, news, images, plus admin endpoints for curation and pipeline runs.
 - **Search.** Structured filters (fuel, transmission, price, any numeric spec), keyword, semantic (pgvector) and hybrid ranking (reciprocal rank fusion).
@@ -52,7 +52,9 @@ docker compose up -d db
 python -m venv autohub/venv
 autohub/venv/Scripts/python -m pip install -e ".[dev]"      # bin/python on Linux/macOS
 autohub/venv/Scripts/python -m playwright install chromium
-autohub/venv/Scripts/python -m alembic upgrade head
+autohub/venv/Scripts/python -m alembic upgrade head          # as the schema owner (MIGRATION_DATABASE_URL)
+# App role without DDL rights; then set DATABASE_URL to postgresql://autohub_app:<that password>@...
+AUTOHUB_APP_DB_PASSWORD=<random value> autohub/venv/Scripts/python -m tools.provision_app_role
 autohub/venv/Scripts/python -m uvicorn autohub.main:app --port 8001
 
 # 3. Frontend (http://localhost:3000)
@@ -63,7 +65,8 @@ Configuration is read from `autohub/.env` or `.env` at the repo root (both git-i
 
 | Variable | Required | Notes |
 |---|---|---|
-| `DATABASE_URL` | yes | e.g. `postgresql+psycopg2://autohub:<password>@127.0.0.1:5433/autohub_dev` |
+| `DATABASE_URL` | yes | the app role, e.g. `postgresql+psycopg2://autohub_app:<password>@127.0.0.1:5433/autohub_dev` (row access only) |
+| `MIGRATION_DATABASE_URL` | for migrations | the schema owner (`autohub`); used by Alembic and `tools.provision_app_role`. Unset: Alembic uses `DATABASE_URL` |
 | `SECRET_KEY` | yes | JWT signing key; use a long random value |
 | `GEMINI_API_KEY` | for extraction, assistant, semantic search | without it those features report that they're unavailable |
 | `SERPAPI_KEY` | for image search | optional |
@@ -84,6 +87,7 @@ API docs: `http://127.0.0.1:8001/docs`. Health: `/health`.
 | `python -m tools.validate_images` | Check stored image URLs over HTTP and pick a primary per model |
 | `python -m tools.renormalize_specs [--commit]` | Re-parse wording-only numeric specs after a parser fix (dry run by default) |
 | `python -m tools.run_rag_eval` | Measure the assistant against ground truth from the live catalogue |
+| `python -m tools.provision_app_role` | Create/update the app database role (row access only; password from `AUTOHUB_APP_DB_PASSWORD`) |
 | `python -m tools.make_admin <email>` | Promote a user to admin (roles cannot be changed through the API) |
 | `python -m tools.migrate_sqlite_to_postgres` | One-off: migrate V1 SQLite data, with a validation report |
 | `python -m tools.import_v1_brochures` | One-off: import brochure PDFs V1 already downloaded |

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -143,6 +144,34 @@ def test_full_run_discovers_downloads_extracts_and_records(
     assert again.stats["extract"] == {"pending": 0}
 
 
+def test_one_file_published_under_two_links_is_extracted_once(
+    db: Session, engine: Engine, tmp_path: Path
+) -> None:
+    same = make_pdf("Shared brochure " * 20)
+    routes = {
+        URLS[0]: [pdf_response(same)],
+        URLS[1]: [pdf_response(same)],
+        URLS[2]: [pdf_response(make_pdf("S " * 40))],
+    }
+    env = Env(db, engine, tmp_path, routes, [extraction("Model Q"), extraction("Model S")])
+    run = env.run()
+    assert run.status == "succeeded", run.stats
+    assert run.stats is not None
+    assert run.stats["extract"] == {"duplicate_content": 1, "pending": 2, "succeeded": 2}
+    assert len(env.provider.calls) == 2
+    again = env.run()
+    assert again.stats is not None and again.stats["extract"] == {"pending": 0}
+
+
+def test_cli_help_prints_on_a_legacy_console(capsys: pytest.CaptureFixture[str]) -> None:
+    from autohub.jobs import pipeline as pipeline_module
+
+    with pytest.raises(SystemExit) as exit_info:
+        pipeline_module.main(["--help"])
+    assert exit_info.value.code == 0
+    capsys.readouterr().out.encode("cp1252")  # the Windows console encoding that crashed on an arrow
+
+
 def test_second_concurrent_run_is_skipped(db: Session, engine: Engine, tmp_path: Path) -> None:
     env = Env(db, engine, tmp_path, pdf_routes(), [])
     with advisory_lock(engine.connect) as held:
@@ -251,6 +280,59 @@ def test_unconfigured_later_stages_are_skipped(db: Session, engine: Engine, tmp_
     assert db.execute(select(Brochure)).scalars().all() == []
 
 
+def test_runs_left_running_by_a_killed_process_are_marked_failed(
+    db: Session, engine: Engine, tmp_path: Path
+) -> None:
+    env = Env(db, engine, tmp_path, pdf_routes(), [extraction("Model Q")])
+    env.run(max_extractions=1)
+    version = db.execute(select(BrochureVersion).order_by(BrochureVersion.id)).scalars().first()
+    assert version is not None
+
+    long_ago = datetime.now(UTC) - timedelta(hours=3)
+    dead = PipelineRun(trigger="cli", status="running", started_at=long_ago)
+    just_created = PipelineRun(trigger="manual", status="running", started_at=datetime.now(UTC))
+    db.add_all([dead, just_created])
+    db.flush()
+    orphan = ExtractionRun(
+        brochure_version_id=version.id,
+        pipeline_run_id=dead.id,
+        llm_provider="fake",
+        llm_model="fake",
+        prompt_version="p",
+        status="running",
+        started_at=long_ago,
+    )
+    db.add(orphan)
+    db.commit()
+
+    run = env.pipeline.run(db, PipelineOptions(brands=["testa"], stages=("images",)))
+    assert run.status == "succeeded"
+
+    db.refresh(dead)
+    db.refresh(orphan)
+    db.refresh(just_created)
+    assert dead.status == "failed" and dead.finished_at is not None
+    assert dead.error is not None and f"recovered by run {run.id}" in dead.error
+    assert orphan.status == "failed" and orphan.error_type == "abandoned"
+    # A row the admin API made seconds ago may still be waiting for the lock: left alone.
+    assert just_created.status == "running"
+
+
+def test_stale_runs_are_not_touched_when_the_lock_is_held_elsewhere(
+    db: Session, engine: Engine, tmp_path: Path
+) -> None:
+    env = Env(db, engine, tmp_path, {}, [])
+    live = PipelineRun(trigger="cli", status="running", started_at=datetime.now(UTC) - timedelta(hours=3))
+    db.add(live)
+    db.commit()
+    with advisory_lock(engine.connect) as held:
+        assert held
+        run = env.pipeline.run(db, PipelineOptions(brands=["testa"], stages=("images",)))
+    assert run.status == "skipped"
+    db.refresh(live)
+    assert live.status == "running"
+
+
 # ---------------------------------------------------------------- admin API
 def _admin_token(client: Any, db: Session) -> dict[str, str]:
     make_user(db, "admin@example.com", role="admin")
@@ -305,3 +387,33 @@ def test_pipeline_routes_need_admin(client: Any, db: Session) -> None:
     headers = {"Authorization": f"Bearer {token['access_token']}"}
     assert client.post("/api/v1/admin/pipeline/run", json={}, headers=headers).status_code == 403
     assert client.get("/api/v1/admin/pipeline/runs").status_code == 401
+
+
+def test_extraction_provider_gets_its_own_timeout_and_retry_budget(
+    engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from autohub.jobs import pipeline as pipeline_module
+
+    seen: dict[str, Any] = {}
+
+    def fake_factory(settings: Any, **kwargs: Any) -> FakeLLMProvider:
+        seen.update(kwargs)
+        return FakeLLMProvider()
+
+    monkeypatch.setattr(pipeline_module, "get_llm_provider", fake_factory)
+    settings = get_settings()
+    pipeline = Pipeline(
+        lock_connect=engine.connect,
+        settings=settings,
+        resolve=lambda keys: ([], keys),
+        fetcher_factory=lambda adapter, s: None,
+        store=BrochureStore(tmp_path / "store"),
+    )
+    pipeline._provider_factory()
+    assert seen == {
+        "model": settings.extraction_model,
+        "timeout_seconds": settings.extraction_timeout_seconds,
+        "max_attempts": settings.extraction_max_attempts,
+    }
+    assert settings.extraction_timeout_seconds > settings.llm_timeout_seconds
+    assert settings.extraction_max_attempts < settings.llm_max_attempts

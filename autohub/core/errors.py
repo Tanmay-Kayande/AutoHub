@@ -48,6 +48,13 @@ class UnauthenticatedError(AppError):
         super().__init__(message, headers={"WWW-Authenticate": "Bearer"})
 
 
+class LoginRequiredError(AppError):
+    """The action is free up to a limit for anonymous callers; signing in lifts it."""
+
+    status_code = 401
+    code = "login_required"
+
+
 class ForbiddenError(AppError):
     status_code = 403
     code = "forbidden"

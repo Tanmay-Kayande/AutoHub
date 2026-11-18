@@ -10,11 +10,27 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, PlainSerializer
 
 # Numbers are exact decimals in the database; JSON carries plain floats.
 Num = Annotated[Decimal, PlainSerializer(lambda v: float(v), return_type=float, when_used="json")]
+
+
+def _web_url(value: str) -> str:
+    """Accept only absolute http(s) URLs: these are rendered as links and image sources."""
+    value = value.strip()
+    if any(ord(c) < 33 or ord(c) == 127 for c in value):
+        raise ValueError("must not contain spaces or control characters")
+    parts = urlsplit(value)
+    if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
+        raise ValueError("must be an absolute http:// or https:// URL")
+    return value
+
+
+# A link or image address supplied by an admin; stored as given (after trimming).
+WebUrl = Annotated[str, Field(max_length=2048), AfterValidator(_web_url)]
 
 
 class ORMModel(BaseModel):
@@ -118,7 +134,10 @@ class ModelSummary(BaseModel):
     fuel_types: list[str]
     transmission_types: list[str]
     price_min: Num | None
-    price_max: Num | None
+    price_max: Num | None  # null with a price_min means "starting from"
+    # Set when the range is the brand's published model-level price rather than variant prices.
+    price_source: str | None = None
+    price_as_of: date | None = None
     primary_image: ImageOut | None
     key_specs: list[KeySpecRange]
 
@@ -270,7 +289,7 @@ class SpecValueIn(BaseModel):
         default=None, description="Unit of value_num as supplied; converted to canonical."
     )
     status: Literal["present", "not_applicable", "optional", "not_available"] = "present"
-    source_url: str | None = None
+    source_url: WebUrl | None = None
     note: str | None = Field(default=None, max_length=500)
 
 
@@ -340,9 +359,9 @@ class NewsIn(BaseModel):
     content: str = Field(min_length=1)
     summary: str | None = None
     source_name: str | None = None
-    source_url: str | None = None
+    source_url: WebUrl | None = None
     published_at: datetime
-    image_urls: list[str] = []
+    image_urls: list[WebUrl] = Field(default=[], max_length=20)
     model_ids: list[int] = []
 
 
@@ -351,9 +370,9 @@ class NewsUpdateIn(BaseModel):
     content: str | None = Field(default=None, min_length=1)
     summary: str | None = None
     source_name: str | None = None
-    source_url: str | None = None
+    source_url: WebUrl | None = None
     published_at: datetime | None = None
-    image_urls: list[str] | None = None
+    image_urls: list[WebUrl] | None = Field(default=None, max_length=20)
     model_ids: list[int] | None = None
 
 
@@ -362,15 +381,15 @@ class BrandIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     country: str | None = None
     description: str | None = None
-    website_url: str | None = None
-    logo_url: str | None = None
+    website_url: WebUrl | None = None
+    logo_url: WebUrl | None = None
 
 
 class BrandUpdateIn(BaseModel):
     country: str | None = None
     description: str | None = None
-    website_url: str | None = None
-    logo_url: str | None = None
+    website_url: WebUrl | None = None
+    logo_url: WebUrl | None = None
 
 
 class ModelIn(BaseModel):

@@ -15,6 +15,8 @@ interface AuthState {
   ready: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  /** Replace the signed-in user after a profile change. */
+  updateUser: (user: User) => void;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -27,6 +29,7 @@ const SIGNED_OUT: AuthState = {
     throw new Error("Sign-in is unavailable here.");
   },
   logout: () => {},
+  updateUser: () => {},
 };
 
 function readToken(): string | null {
@@ -81,7 +84,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }, []);
 
-  const value = useMemo(() => ({ token, user, ready, login, logout }), [token, user, ready, login, logout]);
+  const value = useMemo(
+    () => ({ token, user, ready, login, logout, updateUser: setUser }),
+    [token, user, ready, login, logout],
+  );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

@@ -43,12 +43,14 @@ def normalize_transmission_type(raw: str | None) -> str | None:
         return None
     text = raw.lower()
     found: set[str] = set()
-    if _has(text, r"\bamt\b", r"automated manual", r"\bags\b"):
+    # "(?:\b|\d)" also matches codes glued to a gear count: "7DCT", "5AMT".
+    if _has(text, r"(?:\b|\d)amt\b", r"automated manual", r"\bags\b"):
         found.add("amt")
         text = re.sub(r"automated manual", " ", text)
-    if _has(text, r"\bcvt\b", r"continuously variable"):
+    # Hyundai's iVT ("Intelligent Variable Transmission") is a CVT.
+    if _has(text, r"(?:\b|\d)cvt\b", r"continuously variable", r"\bivt\b", r"intelligent variable"):
         found.add("cvt")
-    if _has(text, r"\bdct\b", r"\bdca\b", r"dual[\s-]*clutch"):
+    if _has(text, r"(?:\b|\d)dct\b", r"(?:\b|\d)dca\b", r"dual[\s-]*clutch"):
         found.add("dct")
     if _has(text, r"single[\s-]*speed"):
         found.add("single_speed")

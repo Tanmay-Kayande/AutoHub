@@ -66,7 +66,11 @@ export interface ModelSummary {
   fuel_types: string[];
   transmission_types: string[];
   price_min: number | null;
+  /** null with a price_min means a starting price. */
   price_max: number | null;
+  /** Page the brand published the model's price on; null when the range comes from variant prices. */
+  price_source: string | null;
+  price_as_of: string | null;
   primary_image: VehicleImage | null;
   key_specs: KeySpecRange[];
 }
@@ -244,4 +248,114 @@ export interface Conversation {
 
 export interface ApiErrorBody {
   error: { code: string; message: string; details?: unknown; request_id?: string };
+}
+
+export interface SearchHit {
+  entity_type: string;
+  entity_id: number;
+  chunk_index: number;
+  content: string;
+  metadata: Record<string, unknown>;
+  brand_id: number | null;
+  model_id: number | null;
+  variant_id: number | null;
+  score: number;
+  sources: string[];
+}
+
+export interface SearchOut {
+  query: string;
+  mode: string;
+  degraded: boolean;
+  items: SearchHit[];
+}
+
+export interface StructuredValue {
+  display: string;
+  value_num: number | null;
+  value_bool: boolean | null;
+  status: string;
+  source_type: string;
+  brochure_version_id: number | null;
+  source_page: number | null;
+}
+
+export interface StructuredRow {
+  variant_id: number;
+  variant: string;
+  model_id: number;
+  model: string;
+  model_slug: string;
+  brand: string;
+  brand_slug: string;
+  fuel_type: string | null;
+  transmission_type: string | null;
+  price_ex_showroom: number | null;
+  values: Record<string, StructuredValue>;
+}
+
+export interface StructuredOut {
+  total_matched: number;
+  missing_value_counts: Record<string, number>;
+  items: StructuredRow[];
+}
+
+export interface SpecFilter {
+  key: string;
+  op: "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "between" | "is_true" | "is_false" | "contains";
+  value?: number | string | null;
+  value_max?: number | null;
+}
+
+export interface StructuredQuery {
+  filters: {
+    brand?: string[];
+    body_type?: string[];
+    fuel_type?: string[];
+    transmission_type?: string[];
+    drivetrain?: string[];
+    price_min?: number | null;
+    price_max?: number | null;
+  };
+  spec_filters: SpecFilter[];
+  sort?: { key: string; direction: "asc" | "desc" } | null;
+  group_by?: "variant" | "model";
+  limit?: number;
+}
+
+export interface PipelineRun {
+  id: number;
+  trigger: string;
+  triggered_by: number | null;
+  status: string;
+  options: Record<string, unknown> | null;
+  stats: Record<string, unknown> | null;
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+export interface BrochureVersionSummary {
+  id: number;
+  sha256: string;
+  file_size: number;
+  page_count: number | null;
+  has_text_layer: boolean | null;
+  downloaded_at: string;
+  extraction_status: string | null;
+}
+
+export interface Brochure {
+  id: number;
+  brand_id: number;
+  model_id: number | null;
+  adapter: string;
+  source_url: string;
+  title: string | null;
+  model_hint: string | null;
+  layout_group: string;
+  is_primary_layout: boolean;
+  first_seen_at: string;
+  last_seen_at: string;
+  versions: BrochureVersionSummary[];
 }

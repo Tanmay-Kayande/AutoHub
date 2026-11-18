@@ -8,7 +8,7 @@ import { ErrorState } from "@/components/ui/States";
 import { SmartImage } from "@/components/ui/SmartImage";
 import { VariantSpecs } from "@/components/vehicle/VariantSpecs";
 import { api, ApiError } from "@/lib/api";
-import { label, priceRange, sourceLabel } from "@/lib/format";
+import { externalHref, label, priceRange, sourceLabel } from "@/lib/format";
 import type { VehicleImage } from "@/lib/types";
 
 type Params = Promise<{ brand: string; model: string }>;
@@ -77,6 +77,15 @@ export default async function ModelPage({ params }: { params: Params }) {
               .join(" — ")}
           </p>
           <p className="mt-2 text-lg">{price ?? <span className="text-muted">Ex-showroom price not published</span>}</p>
+          {price && externalHref(model.price_source) ? (
+            <p className="mt-1 text-xs text-muted">
+              Ex-showroom, as published by{" "}
+              <a href={externalHref(model.price_source)} target="_blank" rel="noreferrer" className="underline hover:text-text">
+                {model.brand.name}
+              </a>
+              {model.price_as_of ? ` · checked ${model.price_as_of}` : ""}
+            </p>
+          ) : null}
         </div>
       </section>
 

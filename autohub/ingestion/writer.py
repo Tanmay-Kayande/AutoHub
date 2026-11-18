@@ -181,6 +181,13 @@ def _fill_codes(variant: Variant, extracted: ExtractedVariant) -> None:
             extracted.transmission
         ) or normalize_transmission_type(extracted.name)
         variant.transmission_raw = variant.transmission_raw or extracted.transmission
+        if (
+            variant.transmission_type is None
+            and variant.fuel_type == "electric"
+            and not variant.transmission_raw
+        ):
+            # Brochures often omit an EV's gearbox; every EV sold here uses one fixed reduction gear.
+            variant.transmission_type = "single_speed"
     if variant.drivetrain is None:
         variant.drivetrain = normalize_drivetrain(
             extracted.drivetrain, extracted.transmission, extracted.name

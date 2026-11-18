@@ -1,7 +1,7 @@
 """Alembic environment.
 
 The database URL comes from, in order: ``-x db_url=...`` on the command line,
-then application settings (``DATABASE_URL``).
+then ``MIGRATION_DATABASE_URL`` (the schema owner), then ``DATABASE_URL``.
 """
 
 from __future__ import annotations
@@ -28,7 +28,8 @@ LEGACY_TABLES = {"car_brands", "car_models", "car_variants", "car_specs", "car_i
 
 def _database_url() -> str:
     override = context.get_x_argument(as_dictionary=True).get("db_url")
-    return override or get_settings().database_url
+    settings = get_settings()
+    return override or settings.migration_database_url or settings.database_url
 
 
 def include_object(obj: object, name: str | None, type_: str, reflected: bool, compare_to: object) -> bool:

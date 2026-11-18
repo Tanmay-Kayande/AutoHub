@@ -1,4 +1,4 @@
-"""Ingestion pipeline: discover → download → extract (→ images → index).
+"""Ingestion pipeline: discover -> download -> extract (-> images -> index).
 
 One run at a time, enforced by a PostgreSQL advisory lock; a run that cannot
 get the lock is recorded as ``skipped``. Each brochure is its own transaction,
@@ -22,10 +22,10 @@ import sys
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
-from sqlalchemy import Connection, select
+from sqlalchemy import Connection, or_, select, update
 from sqlalchemy.orm import Session
 
 from autohub.assistant.llm import LLMProvider, get_llm_provider
@@ -38,6 +38,7 @@ from autohub.ingestion.downloader import BrochureDownloader, DownloadStatus
 from autohub.ingestion.extraction.extractor import BrochureExtractor
 from autohub.ingestion.fetcher import CrawlPolicy, PolitePageFetcher
 from autohub.ingestion.pdf_text import store_pages
+from autohub.ingestion.prices import apply_model_prices
 from autohub.ingestion.store import BrochureStore
 from autohub.ingestion.writer import write_extraction
 from autohub.jobs.locks import advisory_lock
@@ -118,7 +119,12 @@ class Pipeline:
         self._resolve = resolve
         self._fetcher_factory = fetcher_factory
         self._provider_factory = provider_factory or (
-            lambda: get_llm_provider(self.settings, model=self.settings.extraction_model)
+            lambda: get_llm_provider(
+                self.settings,
+                model=self.settings.extraction_model,
+                timeout_seconds=self.settings.extraction_timeout_seconds,
+                max_attempts=self.settings.extraction_max_attempts,
+            )
         )
         self.store = store or BrochureStore(self.settings.data_dir / "brochures")
         self._handlers = dict(stage_handlers or {})
@@ -142,6 +148,7 @@ class Pipeline:
         with advisory_lock(self._lock_connect) as acquired:
             if not acquired:
                 return self._close(db, run, "skipped", None, error="another pipeline run holds the lock")
+            recover_stale_runs(db, current_run_id=run.id)
             stats = _Stats()
             try:
                 self._execute(db, run, options, stats)
@@ -238,6 +245,17 @@ class Pipeline:
             "pages": result.pages_visited,
             "errors": len(result.errors),
         }
+        if result.prices:
+            # Models are created by extraction, so a brand's first run has nothing to match yet;
+            # the names are reported and picked up by the next discovery.
+            priced = apply_model_prices(db, brand.id, result.prices, as_of=now.date())
+            db.commit()
+            stats.discover[adapter.key]["prices"] = {
+                "found": len(result.prices),
+                "updated": priced.updated,
+                "unchanged": priced.unchanged,
+                "unmatched": sorted(priced.unmatched),
+            }
 
     @staticmethod
     def _upsert_brochure(
@@ -331,6 +349,7 @@ class Pipeline:
         self, db: Session, run: PipelineRun, brands: list[Brand], budget: int, stats: _Stats
     ) -> None:
         pending: list[BrochureVersion] = []
+        queued: set[tuple[int, str]] = set()
         extractor: BrochureExtractor | None = None
         for brochure in self._work_brochures(db, [b.id for b in brands]):
             version = self._current_version(db, brochure.id)
@@ -343,8 +362,16 @@ class Pipeline:
                     stats.errors.append({"stage": "extract", "message": f"LLM provider unavailable: {exc}"})
                     return
                 extractor = BrochureExtractor(provider, self.store)
-            if extractor.needs_extraction(db, version):
-                pending.append(version)
+            if not extractor.needs_extraction(db, version):
+                continue
+            # One file published under two links is extracted once; the twin becomes
+            # "done" as soon as that run succeeds (needs_extraction is keyed on content).
+            content = (brochure.brand_id, version.sha256)
+            if content in queued:
+                stats.extract["duplicate_content"] += 1
+                continue
+            queued.add(content)
+            pending.append(version)
         stats.extract["pending"] = len(pending)
         if extractor is None:
             return
@@ -417,6 +444,63 @@ class Pipeline:
         db.commit()
         logger.info("pipeline_run id=%s status=%s error=%s", run.id, status, error)
         return run
+
+
+# ---------------------------------------------------------------- stale-run recovery
+STALE_RUN_GRACE = timedelta(minutes=10)
+
+
+def recover_stale_runs(
+    db: Session,
+    *,
+    current_run_id: int,
+    grace: timedelta = STALE_RUN_GRACE,
+    now: datetime | None = None,
+) -> dict[str, int]:
+    """Mark runs left ``running`` by a killed process as failed. Call only while holding the lock.
+
+    Holding the advisory lock proves no other pipeline is executing, so every other
+    ``running`` extraction run is dead (extraction only happens inside a pipeline run).
+    A ``running`` pipeline row may still be one the admin API just created and whose
+    thread has not reached the lock yet, so pipeline rows get a grace period.
+    """
+    now = now or datetime.now(UTC)
+    message = f"abandoned: the process ended before the run finished (recovered by run {current_run_id})"
+    pipeline_rows = (
+        db.execute(
+            update(PipelineRun)
+            .where(
+                PipelineRun.status == "running",
+                PipelineRun.id != current_run_id,
+                PipelineRun.started_at < now - grace,
+            )
+            .values(status="failed", error=message, finished_at=now)
+            .returning(PipelineRun.id)
+        )
+        .scalars()
+        .all()
+    )
+    extraction_rows = (
+        db.execute(
+            update(ExtractionRun)
+            .where(
+                ExtractionRun.status == "running",
+                or_(ExtractionRun.pipeline_run_id.is_(None), ExtractionRun.pipeline_run_id != current_run_id),
+            )
+            .values(status="failed", error_type="abandoned", error_message=message, finished_at=now)
+            .returning(ExtractionRun.id)
+        )
+        .scalars()
+        .all()
+    )
+    db.commit()
+    if pipeline_rows or extraction_rows:
+        logger.warning(
+            "pipeline_stale_runs_recovered pipeline_runs=%s extraction_runs=%s",
+            list(pipeline_rows),
+            list(extraction_rows),
+        )
+    return {"pipeline_runs": len(pipeline_rows), "extraction_runs": len(extraction_rows)}
 
 
 # ---------------------------------------------------------------- production wiring

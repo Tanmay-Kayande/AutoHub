@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { sourceLabel } from "@/lib/format";
+import { externalHref, sourceLabel } from "@/lib/format";
 import { askStream } from "@/lib/stream";
 import type { AnswerSegment, Evidence } from "@/lib/types";
 
@@ -34,8 +36,8 @@ function EvidenceItem({ item, anchor }: { item: Evidence; anchor: string }) {
           {item.kind === "note" ? "Not in AutoHub's data" : item.kind === "catalogue" ? "AutoHub catalogue" : sourceLabel(source.type)}
           {source.page ? ` · page ${source.page}` : ""}
         </span>
-        {source.url ? (
-          <a href={String(source.url)} target="_blank" rel="noreferrer" className="ml-auto text-accent hover:underline">
+        {externalHref(source.url) ? (
+          <a href={externalHref(source.url)} target="_blank" rel="noreferrer" className="ml-auto text-accent hover:underline">
             Brochure ↗
           </a>
         ) : null}
@@ -113,6 +115,8 @@ export function Chat({
   compact?: boolean;
 }) {
   const { token } = useAuth();
+  const pathname = usePathname();
+  const loginHref = `/login?next=${encodeURIComponent(pathname || "/ask")}`;
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -200,7 +204,19 @@ export function Chat({
             {turn.status === "thinking" && turn.segments.length === 0 ? (
               <p className="animate-pulse text-sm text-muted">Checking AutoHub&apos;s data…</p>
             ) : null}
-            {turn.status === "error" ? (
+            {turn.status === "error" && turn.error?.code === "login_required" ? (
+              <div role="alert" className="rounded-xl border border-accent/30 bg-accent/5 p-4 text-sm">
+                <p>{turn.error.message}</p>
+                <p className="mt-2 flex gap-4">
+                  <Link href={loginHref} className="font-medium text-accent hover:underline">
+                    Log in
+                  </Link>
+                  <Link href="/signup" className="text-accent hover:underline">
+                    Create an account
+                  </Link>
+                </p>
+              </div>
+            ) : turn.status === "error" ? (
               <div role="alert" className="rounded-xl border border-warn/30 bg-warn/5 p-4 text-sm">
                 <p>
                   {turn.error?.code === "rate_limited"
@@ -253,6 +269,15 @@ export function Chat({
           {busy ? "…" : "Ask"}
         </button>
       </form>
+      {!token ? (
+        <p className="text-xs text-muted">
+          You can ask 2 questions a day without an account.{" "}
+          <Link href={loginHref} className="text-accent hover:underline">
+            Log in
+          </Link>{" "}
+          to keep asking.
+        </p>
+      ) : null}
     </div>
   );
 }

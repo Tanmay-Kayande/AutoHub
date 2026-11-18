@@ -32,6 +32,9 @@ class Settings(BaseSettings):
 
     # --- required ---
     database_url: str
+    # Schema owner used only by Alembic. The app connects with DATABASE_URL, which should be
+    # a role without DDL rights (see tools/provision_app_role.py). Unset: Alembic uses DATABASE_URL.
+    migration_database_url: str | None = None
     # HS256 tokens signed with a short key can be brute-forced offline and then forged.
     secret_key: SecretStr = Field(min_length=32)
 
@@ -53,6 +56,11 @@ class Settings(BaseSettings):
     extraction_model: str = "gemini-2.5-flash"
     llm_timeout_seconds: float = Field(default=180.0, gt=0)
     llm_max_attempts: int = Field(default=4, ge=1)
+    # Extraction output runs to tens of thousands of tokens (about 230 tokens/s measured), so
+    # a brochure with many variants needs minutes, not the assistant's timeout. Every attempt
+    # is a request against the daily quota, so a timed-out extraction is retried once only.
+    extraction_timeout_seconds: float = Field(default=600.0, gt=0)
+    extraction_max_attempts: int = Field(default=2, ge=1)
     embedding_provider: str = "gemini"
     embedding_model: str = "gemini-embedding-001"
     embedding_version: str = "v1"
@@ -68,6 +76,11 @@ class Settings(BaseSettings):
     pipeline_max_image_searches_per_run: int = Field(default=20, ge=0)
     pipeline_cron: str = "0 3 1 * *"  # 03:00 UTC on the 1st of each month
     images_target_per_category: int = Field(default=5, ge=1)
+    # A slot whose last search added nothing is not searched again for this many days.
+    images_retry_after_days: int = Field(default=30, ge=0)
+
+    # Assistant questions per client per rolling 24 h without signing in (0: sign-in required).
+    assistant_anonymous_questions: int = Field(default=2, ge=0)
 
     # --- API ---
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
