@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 from sqlalchemy.orm import Session
 
+import autohub
 from tests.factories import make_brand, make_image, make_model, make_user, make_variant
 
 API = "/api/v1"
@@ -180,7 +181,7 @@ def test_error_bodies_and_health(client: Any) -> None:
     assert health.status_code == 200 and health.json() == {
         "status": "ok",
         "database": "ok",
-        "version": "2.0.0",
+        "version": autohub.__version__,
     }
 
     schema = client.get("/openapi.json")
