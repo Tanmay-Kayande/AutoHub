@@ -2,16 +2,22 @@
 
 AutoHub is a car research platform built on specifications taken from official manufacturer brochures. It finds brochures on brand websites, extracts structured specifications with an LLM, keeps every value's source (brochure, page, confidence), and serves them through a REST API, a search engine and an assistant that answers only from that data and shows its evidence.
 
-**Stack:** Python 3.13 · FastAPI · SQLAlchemy 2 · PostgreSQL 18 with pgvector · Alembic · Gemini (extraction, assistant, embeddings) · Playwright (crawling) · Next.js 15 + Tailwind 4 (frontend).
+**Stack:** Python 3.13 · FastAPI · SQLAlchemy 2 · PostgreSQL 18 with pgvector · Alembic · Gemini (`gemini-2.5-flash` extraction, `gemini-3.5-flash-lite` assistant, `gemini-embedding-001` embeddings) · Playwright (crawling) · Next.js 15 + Tailwind 4 (frontend).
+
+**Catalogue today:** 3 brands (Mahindra, Hyundai, Tata) · 36 models · 525 active variants · about 22,000 spec values from 53 brochure versions · 114 spec definitions.
 
 ## What it does
 
-- **Ingestion.** Brand adapters (Mahindra, Hyundai, Tata) discover brochure PDFs on official sites under a polite crawl policy: `robots.txt`, per-host spacing, official domains only, TLS always verified. Downloads use conditional GET and a content-addressed store, so an unchanged brochure is never fetched or processed twice.
+- **Ingestion.** Brand adapters (Mahindra, Hyundai, Tata) discover brochure PDFs on official sites under a polite crawl policy: `robots.txt`, per-host spacing, official domains only, TLS always verified. Downloads use conditional GET and a content-addressed store, so an unchanged brochure is never fetched or processed twice. Adapters also read each brand's published ex-showroom price range per model.
 - **Extraction.** Each new brochure version is sent to the LLM with a schema built from the spec taxonomy (114 definitions). Values are normalised to canonical units and written under a guarded rule: a weaker or emptier source never overwrites a better value, and every replacement is kept in history.
+  - A brochure too large for one answer (Tata Harrier, Safari) is extracted in parts: the variant list first, then batches of variants, merged into one run.
+  - A PDF over Gemini's 50 MB limit is sent as its page text; the same file published under two links is extracted once.
+  - Variants are matched across brochures of a model even when worded differently ("Pure+ 1.2L Revotron 6MT" and "Pure + CNG 6MT"), and variants from an edition brochure carry the edition in their name ("#DARK").
 - **Catalogue API.** Brands, models, variants, specs grouped by category, side-by-side comparison, news, images, plus admin endpoints for curation and pipeline runs.
 - **Search.** Structured filters (fuel, transmission, price, any numeric spec), keyword, semantic (pgvector) and hybrid ranking (reciprocal rank fusion).
-- **Assistant.** Turns a question into a validated query plan, retrieves evidence from the catalogue and brochure pages, and answers with citations. Anything the data doesn't contain is reported as missing rather than guessed. Answers stream over SSE; logged-in users get private conversation history.
-- **Frontend.** Home, brands, model pages with a variant selector and spec tabs, compare, assistant, news, login/signup/profile. Checked at 390 px and 1440 px.
+- **Assistant.** Turns a question into a validated query plan, retrieves evidence from the catalogue and brochure pages, and answers with citations. Anything the data doesn't contain is reported as missing rather than guessed. Answers stream over SSE; logged-in users get private conversation history, and visitors without an account get two questions a day. See [Evaluation](#evaluation) for measured results.
+- **Frontend.** Home, brands, model pages with a variant selector, spec tabs and prices, search with filters, compare, assistant, news, login/signup with profile editing, and an admin area (curation and pipeline runs). Checked at 390 px and 1440 px.
+- **Security.** The app connects as a database role with row access only (no schema rights); migrations use the owner role. Passwords are hashed with argon2, admin links must be http(s), and unknown pages return a real 404.
 
 ## Layout
 
@@ -72,6 +78,8 @@ Configuration is read from `autohub/.env` or `.env` at the repo root (both git-i
 | `SERPAPI_KEY` | for image search | optional |
 | `CORS_ORIGINS` | no | default `http://localhost:3000,http://127.0.0.1:3000` |
 | `SCHEDULER_ENABLED` | no | monthly pipeline run (`PIPELINE_CRON`, default 03:00 UTC on the 1st) |
+| `ASSISTANT_ANONYMOUS_QUESTIONS` | no | questions a visitor may ask per rolling 24 h without an account (default 2) |
+| `EXTRACTION_TIMEOUT_SECONDS` / `EXTRACTION_MAX_ATTEMPTS` | no | per-request limits for brochure extraction (default 600 s, 2 attempts) |
 | `NEXT_PUBLIC_API_URL` | no (frontend) | default `http://127.0.0.1:8001` |
 
 Other settings (models, budgets, crawl delay, pool size) are listed in `autohub/core/settings.py`.
@@ -85,8 +93,9 @@ API docs: `http://127.0.0.1:8001/docs`. Health: `/health`.
 | `python -m autohub.jobs.pipeline [--brands hyundai] [--stages discover,download,extract] [--max-extractions N]` | Run ingestion. One run at a time; paid work is capped per run |
 | `python -m tools.reindex` | Embed new or changed documents for search |
 | `python -m tools.validate_images` | Check stored image URLs over HTTP and pick a primary per model |
-| `python -m tools.renormalize_specs [--commit]` | Re-parse wording-only numeric specs after a parser fix (dry run by default) |
-| `python -m tools.run_rag_eval` | Measure the assistant against ground truth from the live catalogue |
+| `python -m tools.renormalize_specs [--all] [--commit]` | Re-parse stored numbers after a parser fix; `--all` also rewrites numbers that now parse differently (dry run by default) |
+| `python -m tools.clean_variants [--commit]` | Repair variants: fill missing fuel/gearbox codes, retire superseded V1 rows, name edition variants, merge duplicates worded differently (dry run by default) |
+| `python -m tools.run_rag_eval [--limit N] [--seed S]` | Measure the assistant against ground truth from the live catalogue (44 seeded items; uses the live LLM) |
 | `python -m tools.provision_app_role` | Create/update the app database role (row access only; password from `AUTOHUB_APP_DB_PASSWORD`) |
 | `python -m tools.make_admin <email>` | Promote a user to admin (roles cannot be changed through the API) |
 | `python -m tools.migrate_sqlite_to_postgres` | One-off: migrate V1 SQLite data, with a validation report |
@@ -103,6 +112,31 @@ cd frontend && npm run typecheck && npm run lint && npm run build
 
 To run a production build next to a running `next dev`, give it its own output folder (`NEXT_DIST_DIR=.next-verify` for both `next build` and `next start`). Both writing to `.next` corrupts it.
 
+## Evaluation
+
+`python -m tools.run_rag_eval` asks the assistant 44 questions whose answers are taken from the live database at run time (seeded, so a run is repeatable on the same data), and scores every reply automatically.
+
+| Class | Items | What is checked |
+|---|---|---|
+| Ranking | 5 | the top/bottom model by a spec (ties accepted) appears in a cited fact |
+| Spec lookup | 24 | 8 specs × 3 brands on random variants: the stored value appears in a cited fact |
+| Missing spec | 5 | data the catalogue doesn't have (0–100 km/h, top speed, NCAP): reported as missing, not guessed |
+| Unknown vehicle | 5 | made-up models: no invented specs |
+| Out of scope | 5 | non-car requests: declined |
+
+Results on 19 Nov 2026 (`gemini-3.5-flash-lite`, 44 items, 0 errors):
+
+| Metric | Result |
+|---|---|
+| Correct on answerable questions | 29/29 (100%) |
+| Abstention on unanswerable questions | 15/15 (100%) |
+| Citation validity (every fact cites retrieved evidence) | 32/32 answers with facts (100%) |
+| Query-plan intent accuracy | 42/44 (95%): two made-up models were planned as out-of-scope or comparison, still answered correctly |
+| Median latency | 3.3 s (p90 13 s, inflated by free-tier rate-limit retries) |
+| Mean tokens per question | about 3,000 |
+
+The set is small and built from this catalogue, so it measures grounding and refusal behaviour rather than general model quality. Building it found a parser bug (Hyundai's "3 815 mm" stored as 815 mm), which has been fixed.
+
 ## Data and sources
 
 - Specifications are only as complete as the brochures that have been extracted. Values that came over from V1 and aren't confirmed by a brochure yet are labelled "Unverified (legacy)".
@@ -111,6 +145,8 @@ To run a production build next to a running `next dev`, give it its own output f
 
 ## Known limitations
 
-- Tata: the official site's TLS certificate was invalid when last checked, and TLS verification is never disabled, so there's no Tata adapter yet.
-- Extraction and embeddings run on a free-tier Gemini quota, so a large backlog is processed over several runs.
+- Extraction and embeddings run on a free-tier Gemini quota (embeddings: 1,000 documents a day), so a large backlog or a full reindex is processed over several days.
+- Some brochures list engine/gearbox combinations rather than trims (Tata Punch, Mahindra Thar), so those models show powertrain rows instead of trim names.
+- Tata models have no images yet; image search needs a SerpApi budget.
+- Tata's `cars.tatamotors.com` served an expired TLS certificate when last checked, and TLS verification is never disabled; the adapter uses the official `tata.cars` site instead.
 - Mahindra's XUV400 page is disallowed by the site's `robots.txt` and is skipped.
