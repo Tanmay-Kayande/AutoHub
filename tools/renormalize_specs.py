@@ -1,12 +1,15 @@
 """Re-parse stored numeric specs that have wording but no number, after normaliser fixes.
 
-Only rows with ``value_num IS NULL`` on number definitions are considered; the
-original wording is parsed again and, if a number now comes out, written back
-through the guarded writer (same source, so the old row goes to history).
-No LLM call is made.
+By default only rows with ``value_num IS NULL`` on number definitions are
+considered; the original wording is parsed again and, if a number now comes out,
+written back through the guarded writer (same source, so the old row goes to
+history). ``--all`` also re-parses rows that have a number and rewrites those whose
+number changes (for example "3 815" mm stored as 815 before space-grouped
+thousands were understood). No LLM call is made.
 
     python -m tools.renormalize_specs            # dry run
-    python -m tools.renormalize_specs --commit
+    python -m tools.renormalize_specs --all      # dry run, every brochure number
+    python -m tools.renormalize_specs --all --commit
 """
 
 from __future__ import annotations
@@ -33,18 +36,21 @@ class RenormalizeResult:
     written: int
 
 
-def renormalize(db: Session, *, commit: bool) -> RenormalizeResult:
-    """Find number specs stored as wording only and re-parse them. Writes (no commit) only if ``commit``."""
+def renormalize(db: Session, *, commit: bool, include_numbers: bool = False) -> RenormalizeResult:
+    """Re-parse number specs stored as wording only (or, with ``include_numbers``, every brochure
+    number) and keep those whose number changes. Writes (no commit) only if ``commit``."""
+    conditions = [
+        SpecDefinition.data_type == "number",
+        VariantSpec.status == "present",
+        VariantSpec.original_value.is_not(None),
+        VariantSpec.brochure_version_id.is_not(None),
+    ]
+    if not include_numbers:
+        conditions.append(VariantSpec.value_num.is_(None))
     rows = db.execute(
         select(VariantSpec, SpecDefinition)
         .join(SpecDefinition, SpecDefinition.id == VariantSpec.spec_definition_id)
-        .where(
-            SpecDefinition.data_type == "number",
-            VariantSpec.value_num.is_(None),
-            VariantSpec.status == "present",
-            VariantSpec.original_value.is_not(None),
-            VariantSpec.brochure_version_id.is_not(None),
-        )
+        .where(*conditions)
     ).all()
     fixed: dict[int, list[SpecValueInput]] = defaultdict(list)
     for row, definition in rows:
@@ -59,7 +65,15 @@ def renormalize(db: Session, *, commit: bool) -> RenormalizeResult:
             item,
             Provenance(brochure_version_id=row.brochure_version_id or 0, source_type=row.source_type),
         )
-        if value is not None and value.value_num is not None:
+        if (
+            value is not None
+            and value.value_num is not None
+            and (value.value_num, value.value_num_max)
+            != (
+                row.value_num,
+                row.value_num_max,
+            )
+        ):
             fixed[row.variant_id].append(value)
             print(
                 f"variant {row.variant_id} {definition.key}: {row.original_value!r} -> {value.value_num} {value.unit}"
@@ -76,10 +90,11 @@ def renormalize(db: Session, *, commit: bool) -> RenormalizeResult:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--commit", action="store_true")
+    parser.add_argument("--all", action="store_true", help="also re-parse rows that already have a number")
     args = parser.parse_args(argv)
     db = get_session_factory()()
     try:
-        result = renormalize(db, commit=args.commit)
+        result = renormalize(db, commit=args.commit, include_numbers=args.all)
         if args.commit:
             db.commit()
         print(f"candidates: {result.candidates} parseable now: {result.parseable} written: {result.written}")

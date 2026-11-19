@@ -26,6 +26,11 @@ def item(
     [
         ("length", "4,395 mm", None, Decimal("4395"), "mm"),
         ("length", "4395", "mm", Decimal("4395"), "mm"),
+        ("length", "3 815", "mm", Decimal("3815"), "mm"),  # Hyundai's space-grouped thousands
+        ("wheelbase", "2 450 mm", None, Decimal("2450"), "mm"),
+        ("max_torque", "250 Nm @ 1 500-2 750 rpm", None, Decimal("250"), "Nm"),
+        ("max_torque_rpm", "1500~3 500 r/min", None, Decimal("1500"), "rpm"),
+        ("max_power_rpm", "6 300 r/min", None, Decimal("6300"), "rpm"),
         ("max_power", "110 kW (150 PS) @ 5000 rpm", None, Decimal("110"), "kW"),
         ("max_power", "150 PS", None, Decimal("110.3248"), "kW"),
         ("max_torque", "300 Nm @ 1750-2800 rpm", None, Decimal("300"), "Nm"),
