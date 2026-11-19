@@ -184,7 +184,7 @@ def test_unknown_keys_are_dropped_and_counted(db: Session, tmp_path: Path) -> No
         (LLMQuotaError("daily quota exhausted"), "failed", "quota"),
         (LLMTimeoutError("timed out"), "failed", "timeout"),
         (
-            LLMOutputError("truncated", raw_text='{"model', finish_reason="MAX_TOKENS"),
+            LLMOutputError("stopped", raw_text='{"model', finish_reason="SAFETY"),
             "invalid",
             "invalid_output",
         ),
@@ -217,7 +217,7 @@ def test_every_failure_mode_is_recorded_and_writes_nothing(
     assert summary is None and spec_count(db) == before
     assert value(db, lx.id, "length").value_num == Decimal("4395")  # type: ignore[union-attr]
     if status == "invalid" and isinstance(answer, LLMOutputError):
-        assert outcome.run.raw_output == {"text": '{"model', "finish_reason": "MAX_TOKENS"}
+        assert outcome.run.raw_output == {"text": '{"model', "finish_reason": "SAFETY"}
 
 
 def test_missing_file_is_a_failed_run_without_calling_the_provider(db: Session, tmp_path: Path) -> None:
@@ -531,3 +531,90 @@ def test_edition_brochure_names_its_variants_and_keeps_them_apart(db: Session, t
     assert value(db, standard.id, "airbags") is None
     names = set(db.execute(select(Variant.name)).scalars())
     assert "Pure L 1.5L Revotron MT #DARK" in names
+
+
+# ---------------------------------------------------------------- brochures too large for one answer
+def truncated() -> LLMOutputError:
+    return LLMOutputError("output was truncated (MAX_TOKENS)", raw_text='{"model', finish_reason="MAX_TOKENS")
+
+
+def outline(*names: str) -> dict[str, Any]:
+    return {
+        "model_name": "Model Q",
+        "body_type": "SUV",
+        "contains_specifications": True,
+        "variants": [
+            {"name": n, "fuel_type": "Diesel", "transmission": "6MT", "drivetrain": None} for n in names
+        ],
+    }
+
+
+def test_truncated_brochure_is_extracted_in_parts_and_merged(
+    db: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(extractor_module, "VARIANT_BATCH_SIZE", 2)
+    answers = [
+        truncated(),
+        outline("Smart MT", "Pure MT", "Adventure MT"),
+        extraction(
+            [
+                variant("Smart  MT", [spec("airbags", "6")]),  # spacing differs from the list
+                variant("Pure MT", [spec("airbags", "6")]),
+                variant("Fearless MT", [spec("airbags", "7")]),  # not in this part: dropped
+            ],
+            common=[spec("length", "4605 mm")],
+        ),
+        extraction([variant("Adventure MT", [spec("airbags", "7")])], common=[spec("length", "9999 mm")]),
+    ]
+    env = Env(db, tmp_path, answers)
+
+    outcome, summary = env.run()
+
+    assert outcome.run.status == "succeeded" and summary.variants_created == 3
+    assert outcome.run.attempts == 4 and outcome.run.output_tokens == 60  # three answered requests
+    assert outcome.extraction is not None
+    assert [v.name for v in outcome.extraction.variants] == ["Smart MT", "Pure MT", "Adventure MT"]
+    assert [v.transmission for v in outcome.extraction.variants] == ["6MT"] * 3  # filled from the list
+    assert [s.value for s in outcome.extraction.common_specs] == ["4605 mm"]  # first part only
+    prompts = [call.prompt for call in env.provider.calls]
+    assert "list every variant only" in prompts[1]
+    assert "- Smart MT\n- Pure MT" in prompts[2] and "Fill common_specs" in prompts[2]
+    assert "- Adventure MT" in prompts[3] and "empty list" in prompts[3]
+
+
+def test_a_part_that_is_still_too_long_is_halved(
+    db: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(extractor_module, "VARIANT_BATCH_SIZE", 2)
+    answers = [
+        truncated(),
+        outline("A MT", "B MT"),
+        truncated(),
+        extraction([variant("A MT", [spec("airbags", "6")])], common=[spec("length", "4605 mm")]),
+        extraction([variant("B MT", [spec("airbags", "6")])]),
+    ]
+    env = Env(db, tmp_path, answers)
+    outcome, summary = env.run()
+    assert outcome.run.status == "succeeded" and summary.variants_created == 2
+    assert outcome.run.attempts == 5
+
+
+def test_content_cut_off_before_starts_with_the_variant_list(db: Session, tmp_path: Path) -> None:
+    answers = [outline("A MT"), extraction([variant("A MT", [spec("airbags", "6")])])]
+    env = Env(db, tmp_path, [truncated(), truncated()])
+    first, _ = env.run()
+    assert first.run.status == "invalid"
+    env.provider.answers = answers
+    env.provider.calls.clear()
+
+    outcome, _ = env.run()  # a later pipeline run over the same content
+
+    assert outcome.run.status == "succeeded"
+    assert len(env.provider.calls) == 2 and "list every variant only" in env.provider.calls[0].prompt
+
+
+def test_variant_list_that_is_cut_off_too_is_an_invalid_run(db: Session, tmp_path: Path) -> None:
+    env = Env(db, tmp_path, [truncated(), truncated()])
+    outcome, summary = env.run()
+    assert outcome.run.status == "invalid" and summary is None
+    assert outcome.run.attempts == 2 and outcome.run.raw_output["finish_reason"] == "MAX_TOKENS"

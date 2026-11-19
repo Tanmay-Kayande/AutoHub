@@ -48,3 +48,21 @@ class BrochureExtraction(BaseModel):
         description="Values identical for every variant (typically dimensions). Listed once here."
     )
     variants: list[ExtractedVariant]
+
+
+class VariantOutline(BaseModel):
+    name: str = Field(description="Full configuration name, as for a variant entry.")
+    fuel_type: str | None = Field(description="Fuel as printed (petrol, diesel, CNG, electric, ...).")
+    transmission: str | None = Field(description="Transmission as printed (6MT, 7DCT, AMT, ...).")
+    drivetrain: str | None = Field(description="Drivetrain as printed (4WD, AWD, 2WD, ...), else null.")
+
+
+class VariantIndex(BaseModel):
+    """First pass for a brochure too large to extract in one response: the variants only."""
+
+    model_name: str | None = Field(description="Vehicle model name as printed on the brochure.")
+    body_type: str | None = Field(description="suv, hatchback, sedan, mpv, pickup, ... if stated.")
+    contains_specifications: bool = Field(
+        description="false when the document has no specification or feature table."
+    )
+    variants: list[VariantOutline]
