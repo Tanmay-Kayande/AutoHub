@@ -105,6 +105,62 @@ def test_variant_name_tokens_and_completion() -> None:
     assert full_variant_name(ev("AX", None, "MT")) == "AX MT"
     assert full_variant_name(ev("AX5 Diesel MT", "Diesel", "MT")) == "AX5 Diesel MT"
     assert full_variant_name(ev("SX(O)  Turbo", "Petrol", "7DCT")) == "SX(O) Turbo Petrol 7DCT"
+    assert name_tokens("Creative+ PS Petrol 6MT") == name_tokens("Creative + PS Petrol 6MT")
+
+
+CNG_MT = ("cng", "manual")
+PETROL_MT = ("petrol", "manual")
+
+
+def test_same_car_matches_powertrain_wording_of_one_variant() -> None:
+    from autohub.ingestion.writer import same_car
+
+    # Tata's iCNG brochure names the engine, the main brochure the fuel.
+    assert same_car("Pure+ 1.2L Revotron 6MT", CNG_MT, "Pure + CNG 6MT", CNG_MT)
+    assert same_car(
+        "Accomplished 1.5L Kryojet MT",
+        ("diesel", "manual"),
+        "Accomplished 1.5L Kryojet Diesel 6MT",
+        ("diesel", "manual"),
+    )
+    assert same_car("X 7-Speed Petrol", PETROL_MT, "X Petrol 7MT", PETROL_MT)
+
+
+def test_same_car_never_merges_different_cars() -> None:
+    from autohub.ingestion.writer import same_car
+
+    assert not same_car("Pure + CNG 6MT", CNG_MT, "Pure + Petrol 6MT", PETROL_MT)  # fuel
+    assert not same_car("Pure Petrol 6MT", PETROL_MT, "Pure Petrol 6AMT", ("petrol", "amt"))  # gearbox
+    assert not same_car("Pure Petrol 5MT", PETROL_MT, "Pure Petrol 6MT", PETROL_MT)  # gear count
+    assert not same_car("Pure 1.2L Petrol MT", PETROL_MT, "Pure 1.5L Petrol MT", PETROL_MT)  # displacement
+    assert not same_car("Pure Petrol 6MT", PETROL_MT, "Pure S Petrol 6MT", PETROL_MT)  # trim
+    assert not same_car("Pure Petrol 6MT #DARK", PETROL_MT, "Pure Petrol 6MT", PETROL_MT)  # edition
+    assert not same_car("Pure 1.2L Revotron MT", PETROL_MT, "Pure 1.2L Turbo MT", PETROL_MT)  # engine
+    # V1 Thar names: engine codes the vocabulary does not know stay in the trim.
+    diesel = ("diesel", "manual")
+    assert not same_car("LXT Diesel (D117 CRDe)", diesel, "LXT Diesel (mHawk 130 CRDe)", diesel)
+    assert not same_car("Petrol 6MT", PETROL_MT, "1.2L Revotron Petrol 6MT", PETROL_MT)  # no trim at all
+    assert not same_car("Pure 6MT", (None, "manual"), "Pure 6MT", (None, "manual"))  # unknown fuel
+
+
+def test_edition_label_from_brochure_title() -> None:
+    from autohub.ingestion.writer import edition_label, with_edition
+
+    assert edition_label("Sierra #DARK Brochure", ["Sierra"]) == "#DARK"
+    assert edition_label("Red #DARK", ["Harrier"]) == "Red #DARK"
+    assert edition_label("Nexon CAMO Brochure", ["Nexon"]) == "CAMO"
+    for generic in (
+        "Brochure",
+        "Download brochure",
+        "Nexon iCNG Brochure 2026",
+        "The New PUNCH Brochure",
+        None,
+    ):
+        assert edition_label(generic, ["Nexon", "Punch"]) is None
+
+    assert with_edition("Pure L 1.5L Revotron MT", "#DARK") == "Pure L 1.5L Revotron MT #DARK"
+    assert with_edition("Creative CAMO Petrol 6 MT", "CAMO") == "Creative CAMO Petrol 6 MT"
+    assert with_edition("Pure MT", None) == "Pure MT"
 
 
 def test_text_spec_and_unknown_or_empty_items() -> None:
