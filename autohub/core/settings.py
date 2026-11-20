@@ -67,7 +67,7 @@ class Settings(BaseSettings):
 
     # --- ingestion ---
     data_dir: Path = REPO_ROOT / "data"
-    enabled_brands: str = "mahindra,hyundai,tata"
+    enabled_brands: str = "mahindra,hyundai,tata,kia"
     crawler_user_agent: str = "AutoHubBot/2.0 (+automotive brochure indexer; contact: site owner)"
     crawler_delay_seconds: float = Field(default=2.0, ge=0)
     crawler_max_pages_per_brand: int = Field(default=60, ge=1)
