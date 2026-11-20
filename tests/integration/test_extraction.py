@@ -546,6 +546,87 @@ def test_edition_brochure_names_its_variants_and_keeps_them_apart(db: Session, t
     assert "Pure L 1.5L Revotron MT #DARK" in names
 
 
+# ---------------------------------------------------------------- superseded variants
+def _active(db: Session) -> set[str]:
+    return set(db.execute(select(Variant.name).where(Variant.is_active.is_(True))).scalars())
+
+
+def test_a_variant_its_only_brochure_no_longer_lists_is_retired(db: Session, tmp_path: Path) -> None:
+    first = extraction([variant("LX", [spec("airbags", "6")]), variant("ZX", [spec("airbags", "6")])])
+    second = extraction([variant("LX", [spec("airbags", "6")]), variant("MX", [spec("airbags", "6")])])
+    env = Env(db, tmp_path, [first, second])
+    env.run()
+    _, summary = env.run(env.add_version(PDF + b" v2"))
+    assert summary.retired == ["ZX"] and summary.retire_skipped is None
+    assert _active(db) == {"LX", "MX"}
+    # Retired, not deleted: the row and its values stay.
+    assert db.execute(select(func.count()).select_from(Variant)).scalar_one() == 3
+
+
+def test_an_extraction_listing_far_fewer_variants_retires_nothing(db: Session, tmp_path: Path) -> None:
+    names = ["LX", "MX", "SX", "ZX"]
+    first = extraction([variant(n, [spec("airbags", "6")]) for n in names])
+    second = extraction([variant("ZX", [spec("airbags", "6")])])
+    env = Env(db, tmp_path, [first, second])
+    env.run()
+    _, summary = env.run(env.add_version(PDF + b" v2"))
+    assert summary.retired == [] and "lists 1 variants" in (summary.retire_skipped or "")
+    assert _active(db) == set(names)
+
+
+def test_variants_with_values_from_another_source_are_kept(db: Session, tmp_path: Path) -> None:
+    env = Env(db, tmp_path, [extraction([variant("LX", [spec("airbags", "6")])])])
+    model = make_model(db, env.brand)
+    make_variant(db, model, "ZX", specs={"airbags": 6}, source_type="manual")
+    make_variant(db, model, "VX")  # no values at all: provenance unknown
+    _, summary = env.run()
+    assert summary.retired == []
+    assert _active(db) == {"LX", "ZX", "VX"}
+
+
+def test_a_variant_another_brochure_still_lists_is_kept(db: Session, tmp_path: Path) -> None:
+    first = extraction([variant("LX", [spec("airbags", "6")]), variant("ZX", [spec("airbags", "6")])])
+    second = extraction([variant("LX", [spec("airbags", "6")]), variant("MX", [spec("airbags", "6")])])
+    env = Env(db, tmp_path, [first, second])
+    env.run()
+    # A second brochure of the model (e.g. an edition) whose latest run lists ZX; its values
+    # matched unchanged, so ZX's stored provenance still names only the first brochure.
+    other = Brochure(
+        brand_id=env.brand.id,
+        adapter="testa",
+        source_url="https://www.testa.example/q-edition.pdf",
+        layout_group="q-edition",
+        model_id=env.brochure.model_id,
+    )
+    db.add(other)
+    db.flush()
+    other_version = BrochureVersion(
+        brochure_id=other.id,
+        sha256="e" * 64,
+        file_path="e.pdf",
+        file_size=1,
+        page_count=1,
+        has_text_layer=True,
+    )
+    db.add(other_version)
+    db.flush()
+    db.add(
+        ExtractionRun(
+            brochure_version_id=other_version.id,
+            llm_provider="fake",
+            llm_model="fake-model",
+            prompt_version=prompt_version(),
+            status="succeeded",
+            attempts=1,
+            raw_output=extraction([variant("ZX", [spec("airbags", "6")])]),
+        )
+    )
+    db.flush()
+    _, summary = env.run(env.add_version(PDF + b" v2"))
+    assert summary.retired == []
+    assert _active(db) == {"LX", "MX", "ZX"}
+
+
 # ---------------------------------------------------------------- brochures too large for one answer
 def truncated() -> LLMOutputError:
     return LLMOutputError("output was truncated (MAX_TOKENS)", raw_text='{"model', finish_reason="MAX_TOKENS")
