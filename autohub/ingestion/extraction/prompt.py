@@ -12,7 +12,7 @@ from functools import lru_cache
 
 from autohub.specs.taxonomy import TAXONOMY, SpecDef
 
-PROMPT_BASE_VERSION = "v2.2"
+PROMPT_BASE_VERSION = "v2.3"
 
 
 def _describe(spec: SpecDef) -> str:
@@ -42,9 +42,11 @@ Rules:
 3. Copy numeric and text values verbatim with their unit as printed (e.g. "1197 cc", "61 kW (83 PS) @ 6000 r/min"). Do not convert units.
 4. Feature keys: value must be exactly "Yes", "No" or "Optional", with status present / not_available / optional.
 5. variants: one entry per purchasable configuration. When a trim is offered with several powertrains (fuel, transmission, drivetrain) or seating layouts, output one entry for each, and make name the full configuration name including those parts, e.g. "AX7 TECH 6 STR Diesel AWD AT". No two entries may have the same name. Always fill fuel_type and transmission.
-6. A value identical for every variant goes once in common_specs. Values that differ by variant go under each variant they apply to.
-7. page is the 1-based PDF page number where you read the value.
-8. If the document has no specification or feature table, return contains_specifications=false and empty lists.
+6. Finding the configurations: brochures usually print technical specifications in one column per engine or powertrain, and features in one column per trim. Engine columns are NOT the variant list. Take the trims from the feature table, the variant line-up or the availability matrix, then list every trim × powertrain combination the brochure says is offered. Copy each engine's specifications into every configuration that uses that engine, and each trim's feature values into every configuration of that trim.
+7. List every configuration, even when the list is long and entries repeat values. Never reduce it to examples, one per engine, the top trim only, or "and others".
+8. A value identical for every variant goes once in common_specs. Values that differ by variant go under each variant they apply to.
+9. page is the 1-based PDF page number where you read the value.
+10. If the document has no specification or feature table, return contains_specifications=false and empty lists.
 """
 
 

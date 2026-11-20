@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     # --- LLM / embeddings ---
     llm_provider: str = "gemini"
     llm_model: str = "gemini-3.5-flash-lite"  # assistant; own free-tier quota, separate from extraction
-    extraction_model: str = "gemini-2.5-flash"
+    extraction_model: str = "gemini-3.5-flash"  # prompt v2.3 was tuned and checked on this model
     llm_timeout_seconds: float = Field(default=180.0, gt=0)
     llm_max_attempts: int = Field(default=4, ge=1)
     # Extraction output runs to tens of thousands of tokens (about 230 tokens/s measured), so
