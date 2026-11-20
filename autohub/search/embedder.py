@@ -51,6 +51,7 @@ class GeminiEmbedder:
         max_attempts: int = 4,
         client: Any = None,
         caller: GeminiProvider | None = None,
+        vertexai: bool = False,
     ) -> None:
         self.model = model
         self.dimensions = dimensions
@@ -61,6 +62,7 @@ class GeminiEmbedder:
             timeout_seconds=timeout_seconds,
             max_attempts=max_attempts,
             client=client,
+            vertexai=vertexai,
         )
         self.calls = 0
 
@@ -135,7 +137,11 @@ class FakeEmbedder:
 def get_embedder(settings: Settings | None = None) -> EmbeddingProvider:
     settings = settings or get_settings()
     if settings.embedding_provider == "gemini":
-        return GeminiEmbedder(api_key=settings.require_gemini_key(), model=settings.embedding_model)
+        return GeminiEmbedder(
+            api_key=settings.require_gemini_key(),
+            model=settings.embedding_model,
+            vertexai=settings.gemini_use_vertexai,
+        )
     if settings.embedding_provider == "fake":
         return FakeEmbedder()
     raise ValueError(f"unknown EMBEDDING_PROVIDER {settings.embedding_provider!r}")

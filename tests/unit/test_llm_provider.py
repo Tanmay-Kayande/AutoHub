@@ -258,3 +258,41 @@ def test_thinking_budget_is_only_sent_to_gemini_2_5() -> None:
     provider = GeminiProvider(model="gemini-3.5-flash-lite", client=client)
     provider.generate_structured(system="s", prompt="p", schema=Answer)
     assert client.models.calls[0]["config"].thinking_config is None
+
+
+def test_vertex_ai_attaches_inline_only_and_never_uploads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import autohub.assistant.llm as llm
+
+    monkeypatch.setattr(llm, "INLINE_FILE_LIMIT_BYTES", 4)
+    pdf = tmp_path / "big.pdf"
+    pdf.write_bytes(b"%PDF-1.7 large")
+    provider, models, _ = make([], vertexai=True)
+    assert provider.max_pdf_bytes == 4
+    with pytest.raises(LLMRequestError, match="no Files API"):
+        call(provider, files=[pdf])
+    assert provider._client.files.uploaded == [] and models.calls == []
+
+
+def test_developer_api_leaves_the_pdf_limit_to_the_caller() -> None:
+    provider, _, _ = make([])
+    assert provider.vertexai is False and provider.max_pdf_bytes is None
+
+
+@pytest.mark.parametrize("vertexai", [False, True])
+def test_settings_choose_the_gemini_backend(monkeypatch: pytest.MonkeyPatch, vertexai: bool) -> None:
+    import google.genai
+
+    from autohub.assistant.llm import get_llm_provider
+    from autohub.core.settings import Settings
+    from autohub.search.embedder import get_embedder
+
+    built: list[dict[str, Any]] = []
+    monkeypatch.setattr(google.genai, "Client", lambda **kwargs: built.append(kwargs) or SimpleNamespace())
+    settings = Settings(_env_file=None, gemini_api_key="k", gemini_use_vertexai=vertexai)  # type: ignore[call-arg]
+    provider = get_llm_provider(settings)
+    embedder = get_embedder(settings)
+    assert [(b["vertexai"], b["api_key"]) for b in built] == [(vertexai, "k"), (vertexai, "k")]
+    assert isinstance(provider, GeminiProvider) and provider.vertexai is vertexai
+    assert embedder.model == settings.embedding_model

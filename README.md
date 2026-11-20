@@ -75,6 +75,7 @@ Configuration is read from `autohub/.env` or `.env` at the repo root (both git-i
 | `MIGRATION_DATABASE_URL` | for migrations | the schema owner (`autohub`); used by Alembic and `tools.provision_app_role`. Unset: Alembic uses `DATABASE_URL` |
 | `SECRET_KEY` | yes | JWT signing key; use a long random value |
 | `GEMINI_API_KEY` | for extraction, assistant, semantic search | without it those features report that they're unavailable |
+| `GEMINI_USE_VERTEXAI` | no | `true` when `GEMINI_API_KEY` is a Vertex AI key: calls go to Vertex AI and are billed to that Google Cloud project. PDFs over 18 MB are then extracted from their page text (Vertex AI has no Files API) |
 | `SERPAPI_KEY` | for image search | optional |
 | `CORS_ORIGINS` | no | default `http://localhost:3000,http://127.0.0.1:3000` |
 | `SCHEDULER_ENABLED` | no | monthly pipeline run (`PIPELINE_CRON`, default 03:00 UTC on the 1st) |

@@ -48,6 +48,8 @@ class Settings(BaseSettings):
 
     # --- external services (optional) ---
     gemini_api_key: SecretStr | None = None
+    # True: GEMINI_API_KEY is a Vertex AI key and calls are billed to its Google Cloud project.
+    gemini_use_vertexai: bool = False
     serpapi_key: SecretStr | None = None
 
     # --- LLM / embeddings ---

@@ -312,6 +312,19 @@ def test_pdf_over_the_upload_limit_without_text_fails_without_calling_the_provid
     assert env.provider.calls == []
 
 
+def test_a_provider_with_a_lower_pdf_limit_gets_page_text(db: Session, tmp_path: Path) -> None:
+    # Vertex AI has no Files API: a PDF above its inline limit goes as page text.
+    env = Env(db, tmp_path, [extraction([variant("LX", [spec("length", "4 m")])])])
+    env.provider.max_pdf_bytes = len(PDF) - 1  # type: ignore[attr-defined]
+    db.add(
+        BrochurePage(brochure_version_id=env.version.id, page_number=1, content="Length 4 m", char_count=10)
+    )
+    db.flush()
+    outcome, _ = env.run()
+    assert outcome.run.status == "succeeded"
+    assert env.provider.calls[0].files == () and "[Page 1]\nLength 4 m" in env.provider.calls[0].prompt
+
+
 # ---------------------------------------------------------------- writer
 def test_existing_model_is_matched_despite_spacing(db: Session, tmp_path: Path) -> None:
     env = Env(

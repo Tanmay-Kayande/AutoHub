@@ -181,9 +181,15 @@ class GeminiProvider:
         client: Any = None,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
+        vertexai: bool = False,
     ) -> None:
-        """``thinking_budget=0`` turns thinking off (cheapest); ``None`` leaves the model default."""
+        """``thinking_budget=0`` turns thinking off (cheapest); ``None`` leaves the model default.
+
+        ``vertexai=True`` sends requests to Vertex AI (billed to the key's Google Cloud project)
+        instead of the Gemini Developer API. Vertex AI has no Files API, so PDFs must fit inline.
+        """
         self.model = model
+        self.vertexai = vertexai
         self._max_attempts = max_attempts
         self._thinking_budget = thinking_budget
         self._sleep = sleep
@@ -195,6 +201,7 @@ class GeminiProvider:
             if not api_key:
                 raise LLMRequestError("Gemini API key is not configured")
             client = genai.Client(
+                vertexai=vertexai,
                 api_key=api_key,
                 http_options=types.HttpOptions(
                     timeout=int(timeout_seconds * 1000), retry_options=types.HttpRetryOptions(attempts=1)
@@ -308,6 +315,11 @@ class GeminiProvider:
         size = path.stat().st_size
         if size <= INLINE_FILE_LIMIT_BYTES:
             return types.Part.from_bytes(data=path.read_bytes(), mime_type="application/pdf"), None
+        if self.vertexai:
+            raise LLMRequestError(
+                f"{path.name} is {size} bytes; Vertex AI accepts PDFs up to "
+                f"{INLINE_FILE_LIMIT_BYTES} bytes inline and has no Files API"
+            )
         remote, _ = self.call_with_retry(
             lambda: self._client.files.upload(file=str(path), config={"mime_type": "application/pdf"})
         )
@@ -324,6 +336,11 @@ class GeminiProvider:
             self._delete_file(remote)
             raise LLMRequestError(f"uploaded file {path.name} was not accepted (state {remote.state})")
         return types.Part.from_uri(file_uri=remote.uri, mime_type="application/pdf"), remote
+
+    @property
+    def max_pdf_bytes(self) -> int | None:
+        """Largest PDF this provider can attach, or None for the caller's own limit."""
+        return INLINE_FILE_LIMIT_BYTES if self.vertexai else None
 
     def _delete_file(self, remote: Any) -> None:
         try:
@@ -502,6 +519,7 @@ def get_llm_provider(
             model=model or settings.llm_model,
             timeout_seconds=timeout_seconds or settings.llm_timeout_seconds,
             max_attempts=max_attempts or settings.llm_max_attempts,
+            vertexai=settings.gemini_use_vertexai,
         )
     if settings.llm_provider == "fake":
         return FakeLLMProvider()

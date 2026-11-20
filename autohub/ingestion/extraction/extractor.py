@@ -221,7 +221,10 @@ class BrochureExtractor:
 
         prompt = user_prompt(brand=brochure.brand.name, model_hint=brochure.model_hint)
         files = [path]
-        if path.stat().st_size > PDF_UPLOAD_LIMIT_BYTES:
+        # A provider may accept less than Gemini's 50 MB (Vertex AI: inline PDFs only).
+        provider_limit = getattr(self.provider, "max_pdf_bytes", None)
+        upload_limit = min(PDF_UPLOAD_LIMIT_BYTES, provider_limit or PDF_UPLOAD_LIMIT_BYTES)
+        if path.stat().st_size > upload_limit:
             page_text = self._page_text(db, version)
             if not page_text:
                 return self._finish(
