@@ -26,12 +26,16 @@ def answer(*names: str) -> dict[str, Any]:
         "body_type": "SUV",
         "contains_specifications": True,
         "common_specs": [],
+        "powertrains": [],
+        "trims": [],
         "variants": [
             {
                 "name": n,
                 "fuel_type": "Petrol",
                 "transmission": "MT",
                 "drivetrain": None,
+                "trim": None,
+                "powertrain": None,
                 "specs": [{"key": "airbags", "value": "6", "unit": None, "status": "present", "page": 1}],
             }
             for n in names

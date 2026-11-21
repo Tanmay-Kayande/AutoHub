@@ -32,6 +32,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -39,11 +40,17 @@ from sqlalchemy.orm import Session
 
 from autohub.assistant.llm import LLMError, LLMOutputError, LLMProvider
 from autohub.db.models import Brochure, BrochurePage, BrochureVersion, ExtractionRun
-from autohub.ingestion.extraction.prompt import prompt_version, system_prompt, user_prompt
+from autohub.ingestion.extraction.prompt import (
+    current_prompt_versions,
+    prompt_version,
+    system_prompt,
+    user_prompt,
+)
 from autohub.ingestion.extraction.schema import (
     BrochureExtraction,
     ExtractedSpec,
     ExtractedVariant,
+    GroupedExtraction,
     VariantIndex,
     VariantOutline,
 )
@@ -189,7 +196,7 @@ class BrochureExtractor:
             .where(
                 BrochureVersion.sha256 == version.sha256,
                 Brochure.brand_id == brand_id,
-                ExtractionRun.prompt_version == prompt_version(),
+                ExtractionRun.prompt_version.in_(current_prompt_versions()),
                 ExtractionRun.llm_model == self.provider.model,
                 ExtractionRun.status.in_(("succeeded", "empty")),
             )
@@ -242,12 +249,15 @@ class BrochureExtractor:
 
         spend = _Spend()
         try:
+            raw: dict[str, Any] | None = None
             if self._hit_ceiling_before(db, version):
                 logger.info("extraction_in_parts version=%s reason=earlier_run_truncated", version.id)
                 value = self._in_parts(prompt, files, spend)
             else:
                 try:
-                    value = self._call(prompt, files, BrochureExtraction, spend)
+                    grouped = self._call(prompt, files, GroupedExtraction, spend)
+                    raw = grouped.model_dump(mode="json")
+                    value = grouped.expand()
                 except LLMOutputError as exc:
                     if exc.finish_reason != TRUNCATED:
                         raise
@@ -263,7 +273,8 @@ class BrochureExtractor:
 
         self._record_spend(run, spend)
         extraction, unknown = clean_extraction(value)
-        run.raw_output = value.model_dump(mode="json")
+        # Grouped answers are stored as answered; extraction_from_raw expands them again.
+        run.raw_output = raw if raw is not None else value.model_dump(mode="json")
         run.unknown_keys = len(unknown)
         run.variants_found = len(extraction.variants)
         outcome.unknown_keys = unknown
@@ -341,7 +352,7 @@ class BrochureExtractor:
             .where(
                 BrochureVersion.sha256 == version.sha256,
                 Brochure.brand_id == brand_id,
-                ExtractionRun.prompt_version == prompt_version(),
+                ExtractionRun.prompt_version.in_(current_prompt_versions()),
                 ExtractionRun.llm_model == self.provider.model,
                 ExtractionRun.status == "invalid",
                 ExtractionRun.raw_output["finish_reason"].astext == TRUNCATED,

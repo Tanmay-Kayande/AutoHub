@@ -41,7 +41,7 @@ from autohub.db.models import (
     VariantSpec,
     VehicleModel,
 )
-from autohub.ingestion.extraction.schema import BrochureExtraction, ExtractedVariant
+from autohub.ingestion.extraction.schema import BrochureExtraction, ExtractedVariant, extraction_from_raw
 from autohub.ingestion.normalize import Provenance, normalize_specs
 from autohub.specs.service import ApplyResult, SpecValueInput, apply_spec_values
 from autohub.specs.taxonomy import get_spec
@@ -371,7 +371,7 @@ def _listed_by_other_brochures(db: Session, brochure: Brochure, model_id: int) -
         ).scalar_one_or_none()
         if raw:
             try:
-                listed.extend(BrochureExtraction.model_validate(raw).variants)
+                listed.extend(extraction_from_raw(raw).variants)
             except ValueError:
                 logger.warning("retire_check_unreadable_output brochure_id=%s", other_id)
     return listed

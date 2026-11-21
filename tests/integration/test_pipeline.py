@@ -73,8 +73,18 @@ def extraction(model: str) -> dict[str, Any]:
         "body_type": "suv",
         "contains_specifications": True,
         "common_specs": [{"key": "length", "value": "4300 mm", "unit": None, "status": "present", "page": 2}],
+        "powertrains": [],
+        "trims": [],
         "variants": [
-            {"name": "LX", "fuel_type": "Petrol", "transmission": "MT", "drivetrain": None, "specs": []}
+            {
+                "name": "LX",
+                "fuel_type": "Petrol",
+                "transmission": "MT",
+                "drivetrain": None,
+                "trim": None,
+                "powertrain": None,
+                "specs": [],
+            }
         ],
     }
 

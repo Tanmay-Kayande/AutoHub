@@ -25,7 +25,8 @@ from autohub.db.models import (
 )
 from autohub.ingestion.extraction import extractor as extractor_module
 from autohub.ingestion.extraction.extractor import BrochureExtractor
-from autohub.ingestion.extraction.prompt import prompt_version
+from autohub.ingestion.extraction.prompt import EQUIVALENT_PROMPT_VERSIONS, prompt_version
+from autohub.ingestion.extraction.schema import extraction_from_raw
 from autohub.ingestion.store import BrochureStore
 from autohub.ingestion.writer import write_extraction
 from tests.factories import make_brand, make_model, make_variant
@@ -40,7 +41,15 @@ def spec(key: str, value: str, status: str = "present", unit: str | None = None)
 def variant(
     name: str, specs: list[dict[str, Any]], fuel: str | None = None, trans: str | None = None
 ) -> dict[str, Any]:
-    return {"name": name, "fuel_type": fuel, "transmission": trans, "drivetrain": None, "specs": specs}
+    return {
+        "name": name,
+        "fuel_type": fuel,
+        "transmission": trans,
+        "drivetrain": None,
+        "trim": None,
+        "powertrain": None,
+        "specs": specs,
+    }
 
 
 def extraction(
@@ -51,6 +60,8 @@ def extraction(
         "body_type": "SUV",
         "contains_specifications": True,
         "common_specs": common or [],
+        "powertrains": [],
+        "trims": [],
         "variants": variants,
     }
 
@@ -195,6 +206,8 @@ def test_unknown_keys_are_dropped_and_counted(db: Session, tmp_path: Path) -> No
                 "body_type": None,
                 "contains_specifications": False,
                 "common_specs": [],
+                "powertrains": [],
+                "trims": [],
                 "variants": [],
             },
             "empty",
@@ -712,3 +725,65 @@ def test_variant_list_that_is_cut_off_too_is_an_invalid_run(db: Session, tmp_pat
     outcome, summary = env.run()
     assert outcome.run.status == "invalid" and summary is None
     assert outcome.run.attempts == 2 and outcome.run.raw_output["finish_reason"] == "MAX_TOKENS"
+
+
+# ---------------------------------------------------------------- grouped answers
+def grouped_answer() -> dict[str, Any]:
+    def configuration(name: str, trim: str, powertrain: str, specs: list[dict[str, Any]]) -> dict[str, Any]:
+        return variant(name, specs, fuel="Petrol", trans=powertrain.split()[-1]) | {
+            "trim": trim,
+            "powertrain": powertrain,
+        }
+
+    answer = extraction(
+        [
+            configuration("LX 1.2 MT", "LX", "1.2 MT", []),
+            configuration("ZX 1.2 MT", "zx ", "1.2 MT", []),
+            configuration("ZX 1.5 AT", "ZX", "1.5  AT", [spec("sunroof", "No", "not_available")]),
+        ],
+        common=[spec("length", "4395 mm")],
+    )
+    answer["powertrains"] = [
+        {"label": "1.2 MT", "specs": [spec("engine_displacement", "1197 cc")]},
+        {"label": "1.5 AT", "specs": [spec("engine_displacement", "1497 cc")]},
+    ]
+    answer["trims"] = [
+        {"label": "LX", "specs": [spec("sunroof", "No", "not_available")]},
+        {"label": "ZX", "specs": [spec("sunroof", "Yes")]},
+    ]
+    return answer
+
+
+def test_a_grouped_answer_is_expanded_per_configuration_and_stored_as_answered(
+    db: Session, tmp_path: Path
+) -> None:
+    env = Env(db, tmp_path, [grouped_answer()])
+    outcome, summary = env.run()
+    assert outcome.succeeded and "powertrains" in outcome.run.raw_output
+    by_name = {v.name: {s.key: s.value for s in v.specs} for v in outcome.extraction.variants}
+    assert by_name == {
+        "LX 1.2 MT": {"sunroof": "No", "engine_displacement": "1197 cc"},
+        "ZX 1.2 MT": {"sunroof": "Yes", "engine_displacement": "1197 cc"},  # labels match loosely
+        # The configuration's own value wins over its trim's.
+        "ZX 1.5 AT": {"sunroof": "No", "engine_displacement": "1497 cc"},
+    }
+    assert summary.variants_created == 3
+    # Stored output replays to the same configurations.
+    replayed = extraction_from_raw(outcome.run.raw_output)
+    assert [v.name for v in replayed.variants] == list(by_name)
+
+
+def test_runs_under_an_equivalent_earlier_prompt_are_not_extracted_again(db: Session, tmp_path: Path) -> None:
+    env = Env(db, tmp_path, [])
+    db.add(
+        ExtractionRun(
+            brochure_version_id=env.version.id,
+            llm_provider="fake",
+            llm_model="fake-model",
+            prompt_version=EQUIVALENT_PROMPT_VERSIONS[0],
+            status="succeeded",
+            attempts=1,
+        )
+    )
+    db.flush()
+    assert not env.extractor.needs_extraction(db, env.version)

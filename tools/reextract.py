@@ -29,8 +29,8 @@ from autohub.core.settings import Settings, get_settings
 from autohub.db.models import Brand, BrochureVersion, ExtractionRun, ModelGeneration, Variant, VehicleImage
 from autohub.db.session import get_engine, get_session_factory
 from autohub.ingestion.extraction.extractor import BrochureExtractor, clean_extraction
-from autohub.ingestion.extraction.prompt import prompt_version
-from autohub.ingestion.extraction.schema import BrochureExtraction
+from autohub.ingestion.extraction.prompt import current_prompt_versions
+from autohub.ingestion.extraction.schema import extraction_from_raw
 from autohub.ingestion.store import BrochureStore
 from autohub.ingestion.writer import write_extraction
 from autohub.jobs.locks import advisory_lock
@@ -57,12 +57,12 @@ def _versions(
 
 
 def _pending_run(db: Session, version: BrochureVersion, model: str) -> ExtractionRun | None:
-    """Latest succeeded run of this version under the current prompt and model, if not yet written."""
+    """Latest succeeded run of this version under a current prompt and the model, if not yet written."""
     return db.execute(
         select(ExtractionRun)
         .where(
             ExtractionRun.brochure_version_id == version.id,
-            ExtractionRun.prompt_version == prompt_version(),
+            ExtractionRun.prompt_version.in_(current_prompt_versions()),
             ExtractionRun.llm_model == model,
             ExtractionRun.status == "succeeded",
             ExtractionRun.specs_written.is_(None),
@@ -155,7 +155,7 @@ def write(
         run = _pending_run(db, version, settings.extraction_model)
         if run is None:
             continue
-        extraction, _ = clean_extraction(BrochureExtraction.model_validate(run.raw_output))
+        extraction, _ = clean_extraction(extraction_from_raw(run.raw_output or {}))
         summary = write_extraction(db, version=version, run=run, extraction=extraction)
         db.flush()
         retired_details = _retired_details(db, summary.retired, summary.model_id)
