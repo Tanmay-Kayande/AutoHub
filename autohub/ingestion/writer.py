@@ -54,7 +54,7 @@ def compact(name: str) -> str:
     return _NON_ALNUM.sub("", name.lower())
 
 
-_WORD = re.compile(r"[a-z0-9+]+")
+_WORD = re.compile(r"[a-z0-9]+|\+")  # "+" is its own token: "Pure+ S" == "Pure + S"
 _SEATS = re.compile(r"(\d)\s*-?\s*(str|seater|seats?)\b")
 _SYNONYMS = {"seater": "str", "seats": "str", "seat": "str", "automatic": "at", "manual": "mt", "4x4": "4wd"}
 
@@ -65,6 +65,118 @@ def name_tokens(name: str) -> tuple[str, ...]:
     ``"AX7 STR"`` do not."""
     text = _SEATS.sub(r"\1 str", name.lower())
     return tuple(sorted(_SYNONYMS.get(w, w) for w in _WORD.findall(text)))
+
+
+# Powertrain wording that brochures of one model print differently for the same car
+# ("Pure+ 1.2L Revotron 6MT" in the iCNG brochure, "Pure + CNG 6MT" in the main one).
+# Engine families are listed explicitly: an unknown word stays part of the trim, so
+# the worst case is a missed match (today's behaviour), never a wrong merge.
+_FUEL_WORDS = frozenset({"petrol", "gasoline", "diesel", "cng", "icng", "electric", "ev", "lpg"})
+_GEARBOX_WORDS = frozenset(
+    {
+        "mt",
+        "at",
+        "amt",
+        "dct",
+        "dca",
+        "cvt",
+        "ivt",
+        "manual",
+        "automatic",
+        "dual",
+        "clutch",
+        "speed",
+        "transmission",
+    }
+)
+_ENGINE_WORDS = frozenset(
+    {
+        "kappa", "revotron", "revotorq", "kryojet", "kryotec", "hyperion", "mpi", "turbo",
+        "turbocharged", "gdi", "tgdi", "u2", "crdi", "crde", "mhawk", "mstallion", "na",
+        "engine", "injection", "direct",
+    }
+)  # fmt: skip
+_GEARS = re.compile(r"(\d+)\s*-?\s*(?:speed\b|(?=(?:mt|at|amt|dct|dca|cvt|ivt)\b))")
+_DISPLACEMENT = re.compile(r"\b(\d\.\d)\s*l\b")
+
+
+@dataclass(frozen=True)
+class PowertrainKey:
+    """A variant name split into the trim (identity) and its powertrain wording."""
+
+    trim: tuple[str, ...]
+    gears: frozenset[str]
+    displacement: frozenset[str]
+    engines: frozenset[str]
+
+
+def powertrain_key(name: str) -> PowertrainKey:
+    text = _SEATS.sub(r"\1 str", name.lower())
+    gears = frozenset(_GEARS.findall(text))
+    text = _GEARS.sub(" ", text)
+    displacement = frozenset(_DISPLACEMENT.findall(text))
+    text = _DISPLACEMENT.sub(" ", text)
+    trim: list[str] = []
+    engines: set[str] = set()
+    for word in _WORD.findall(text):
+        if word in _ENGINE_WORDS:
+            engines.add(word)
+        elif word not in _FUEL_WORDS and word not in _GEARBOX_WORDS:
+            trim.append(_SYNONYMS.get(word, word))
+    return PowertrainKey(tuple(sorted(trim)), gears, displacement, frozenset(engines))
+
+
+def same_car(
+    a_name: str,
+    a_codes: tuple[str | None, str | None],
+    b_name: str,
+    b_codes: tuple[str | None, str | None],
+) -> bool:
+    """Whether two differently worded names of one model describe the same variant.
+
+    Requires the same trim words, the same known fuel and transmission codes, no
+    contradiction in gear count or displacement, and engine words of one name
+    contained in the other's ("1.2L Revotron" vs nothing). "#DARK", "CAMO", seat
+    counts and drivetrain stay in the trim, so editions are never merged.
+    """
+    if None in a_codes or a_codes != b_codes:
+        return False
+    a, b = powertrain_key(a_name), powertrain_key(b_name)
+    if a.trim != b.trim or not any(w != "+" for w in a.trim):
+        return False
+    if a.gears and b.gears and a.gears != b.gears:
+        return False
+    if a.displacement and b.displacement and a.displacement != b.displacement:
+        return False
+    return a.engines <= b.engines or b.engines <= a.engines
+
+
+_TITLE_FILLER = frozenset({"brochure", "download", "main", "the", "new", "catalogue", "catalog"})
+_YEAR = re.compile(r"^(19|20)\d\d$")
+
+
+def edition_label(title: str | None, model_names: list[str]) -> str | None:
+    """The edition a brochure title names beyond the model: ``"Sierra #DARK Brochure"``
+    -> ``"#DARK"``; ``"Nexon iCNG Brochure 2026"`` and ``"Brochure"`` -> ``None``."""
+    if not title:
+        return None
+    model_words = {w for n in model_names for w in _WORD.findall(n.lower())}
+    kept = []
+    for word in title.split():
+        tokens = _WORD.findall(word.lower())
+        if not tokens or all(
+            t in model_words or t in _TITLE_FILLER or t in _FUEL_WORDS or _YEAR.match(t) for t in tokens
+        ):
+            continue
+        kept.append(word)
+    return " ".join(kept) or None
+
+
+def with_edition(name: str, label: str | None) -> str:
+    """Append the edition unless the name already carries all its words."""
+    if not label or set(name_tokens(label)) <= set(name_tokens(name)):
+        return name
+    return f"{name} {label}"
 
 
 def full_variant_name(extracted: ExtractedVariant) -> str:
@@ -152,15 +264,42 @@ def _current_generation(db: Session, model: VehicleModel) -> ModelGeneration:
     return generation
 
 
+def _codes(extracted: ExtractedVariant) -> tuple[str | None, str | None]:
+    fuel = normalize_fuel_type(extracted.fuel_type) or normalize_fuel_type(extracted.name)
+    transmission = normalize_transmission_type(extracted.transmission) or normalize_transmission_type(
+        extracted.name
+    )
+    return fuel, transmission
+
+
 def _resolve_variant(
-    db: Session, generation: ModelGeneration, existing: list[Variant], extracted: ExtractedVariant, name: str
+    db: Session,
+    generation: ModelGeneration,
+    existing: list[Variant],
+    extracted: ExtractedVariant,
+    name: str,
+    touched: set[int],
 ) -> tuple[Variant, bool]:
+    """Exact name match first; then the one active variant worded differently for the
+    same car (:func:`same_car`), skipping variants this extraction already wrote to."""
     slug = slugify(name)
     forms = {name_tokens(name), name_tokens(full_variant_name(extracted))}
     for variant in existing:
         if variant.slug == slug or name_tokens(variant.name) in forms:
             _fill_codes(variant, extracted)
             return variant, False
+    codes = _codes(extracted)
+    similar = [
+        v
+        for v in existing
+        if v.is_active
+        and v.id not in touched
+        and same_car(name, codes, v.name, (v.fuel_type, v.transmission_type))
+    ]
+    if len(similar) == 1:
+        logger.info("variant_matched_by_powertrain name=%r variant=%r", name, similar[0].name)
+        _fill_codes(similar[0], extracted)
+        return similar[0], False
     variant = Variant(
         generation_id=generation.id, name=name, slug=unique_slug(name, {v.slug for v in existing})
     )
@@ -173,13 +312,12 @@ def _resolve_variant(
 
 def _fill_codes(variant: Variant, extracted: ExtractedVariant) -> None:
     """Set fuel/transmission/drivetrain only where still unknown; never overwrite."""
+    fuel, transmission = _codes(extracted)
     if variant.fuel_type is None:
-        variant.fuel_type = normalize_fuel_type(extracted.fuel_type) or normalize_fuel_type(extracted.name)
+        variant.fuel_type = fuel
         variant.fuel_type_raw = variant.fuel_type_raw or extracted.fuel_type
     if variant.transmission_type is None:
-        variant.transmission_type = normalize_transmission_type(
-            extracted.transmission
-        ) or normalize_transmission_type(extracted.name)
+        variant.transmission_type = transmission
         variant.transmission_raw = variant.transmission_raw or extracted.transmission
         if (
             variant.transmission_type is None
@@ -226,8 +364,13 @@ def write_extraction(
 
     # Names are kept as printed; powertrain words are added only where printed names repeat.
     printed = Counter(name_tokens(v.name) for v in extraction.variants)
+    edition = edition_label(
+        brochure.title, [model.name, *([brochure.model_hint] if brochure.model_hint else [])]
+    )
     names = [
-        full_variant_name(v) if printed[name_tokens(v.name)] > 1 else " ".join(v.name.split())
+        with_edition(
+            full_variant_name(v) if printed[name_tokens(v.name)] > 1 else " ".join(v.name.split()), edition
+        )
         for v in extraction.variants
     ]
     counts = Counter(name_tokens(n) for n in names)
@@ -247,10 +390,12 @@ def write_extraction(
         targets = [(v, False) for v in existing]
         common_only = True
     else:
-        targets = [
-            _resolve_variant(db, generation, existing, ev, name)
-            for ev, name in zip(variants, kept_names, strict=True)
-        ]
+        touched: set[int] = set()
+        targets = []
+        for ev, name in zip(variants, kept_names, strict=True):
+            variant, was_created = _resolve_variant(db, generation, existing, ev, name, touched)
+            touched.add(variant.id)
+            targets.append((variant, was_created))
         common_only = False
 
     for index, (variant, was_created) in enumerate(targets):

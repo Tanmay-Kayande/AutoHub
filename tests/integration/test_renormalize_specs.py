@@ -65,3 +65,29 @@ def test_wording_only_number_is_reparsed_only_on_commit(db: Session) -> None:
     assert row.value_num == Decimal("1635") and row.original_value == "1635***"
     assert db.execute(select(VariantSpecHistory)).scalars().first() is not None
     assert renormalize(db, commit=False).candidates == 0
+
+
+def test_all_rewrites_numbers_that_parse_differently_now(db: Session) -> None:
+    brand = make_brand(db)
+    variant = make_variant(db, make_model(db, brand), "LX")
+    version = _version(db, brand.id)
+    common = {
+        "key": "height",
+        "source_type": "official_brochure",
+        "original_value": "1 635",
+        "original_unit": "mm",
+        "brochure_version_id": version.id,
+        "source_page": 3,
+    }
+    # Stored the way the old parser read "1 635": the last group only.
+    assert (
+        apply_spec_values(db, variant.id, [SpecValueInput(**common, value_num=Decimal("635"))]).written == 1
+    )
+
+    assert renormalize(db, commit=False).candidates == 0  # default: wording-only rows only
+    dry = renormalize(db, commit=False, include_numbers=True)
+    assert (dry.parseable, dry.written) == (1, 0)
+
+    assert renormalize(db, commit=True, include_numbers=True).written == 1
+    assert _height(db, variant.id).value_num == Decimal("1635")
+    assert renormalize(db, commit=False, include_numbers=True).parseable == 0  # idempotent

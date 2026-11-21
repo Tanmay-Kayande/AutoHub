@@ -17,6 +17,13 @@ failed         provider error, or the PDF is missing from the store  quota, time
 The extractor never writes specifications; on success it returns the cleaned
 :class:`BrochureExtraction` for the writer. Unknown keys are dropped here and
 counted on the run.
+
+A brochure whose answer exceeds the output ceiling (Tata Harrier and Safari) is
+extracted in parts within the same run: one request lists the variants
+(:class:`VariantIndex`), then each batch of ``VARIANT_BATCH_SIZE`` variants is
+extracted with the full rules and the answers are merged. A batch that is still
+too long is halved. Content that already hit the ceiling under this prompt and
+model goes straight to the batched path, so the doomed full request is not repeated.
 """
 
 from __future__ import annotations
@@ -24,15 +31,24 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from autohub.assistant.llm import LLMError, LLMOutputError, LLMProvider
 from autohub.db.models import Brochure, BrochurePage, BrochureVersion, ExtractionRun
 from autohub.ingestion.extraction.prompt import prompt_version, system_prompt, user_prompt
-from autohub.ingestion.extraction.schema import BrochureExtraction, ExtractedSpec
+from autohub.ingestion.extraction.schema import (
+    BrochureExtraction,
+    ExtractedSpec,
+    ExtractedVariant,
+    VariantIndex,
+    VariantOutline,
+)
 from autohub.ingestion.store import BrochureStore
+from autohub.ingestion.writer import name_tokens
 from autohub.specs.taxonomy import get_spec
 
 logger = logging.getLogger(__name__)
@@ -44,6 +60,64 @@ RAW_TEXT_LIMIT = 200_000
 # Gemini accepts PDFs up to 50 MB. A larger brochure (image-heavy, e.g. the 63 MB Tata
 # Tiago file) is sent as its stored page text instead; page numbers are kept in the text.
 PDF_UPLOAD_LIMIT_BYTES = 50 * 1024 * 1024
+# About 65,000 output tokens fit 30-36 variants of a full spec table; 10 leaves room.
+VARIANT_BATCH_SIZE = 10
+TRUNCATED = "MAX_TOKENS"
+
+INDEX_INSTRUCTION = (
+    "\n\nThis brochure is too large to extract in one answer, so it is done in parts. "
+    "In this first part, list every variant only: one entry per purchasable configuration, "
+    "named and split exactly as the rules for variants say. Do not extract any specification values."
+)
+
+
+def batch_instruction(names: list[str], *, first: bool) -> str:
+    listed = "\n".join(f"- {name}" for name in names)
+    common = (
+        "Fill common_specs as usual: values identical for every variant of the whole brochure."
+        if first
+        else "Return common_specs as an empty list; they were extracted in an earlier part."
+    )
+    return (
+        "\n\nThis brochure is too large to extract in one answer, so it is done in parts. "
+        f"In this part, extract only these variants, with exactly these names:\n{listed}\n"
+        f"Values that differ between any variants of the brochure go under each of these variants. {common}"
+    )
+
+
+def _only_listed(
+    variants: list[ExtractedVariant], batch: list[VariantOutline], done: list[ExtractedVariant]
+) -> list[ExtractedVariant]:
+    """Keep the batch's own variants (a model may add others it saw) and never repeat one.
+    Names are compared order-free and the listed name is kept; the outline's powertrain
+    fields fill what the part left empty."""
+    wanted = {name_tokens(o.name): o for o in batch}
+    seen = {name_tokens(v.name) for v in done}
+    kept: list[ExtractedVariant] = []
+    for variant in variants:
+        key = name_tokens(variant.name)
+        outline = wanted.get(key)
+        if outline is None or key in seen:
+            continue
+        seen.add(key)
+        kept.append(
+            variant.model_copy(
+                update={
+                    "name": outline.name,
+                    "fuel_type": variant.fuel_type or outline.fuel_type,
+                    "transmission": variant.transmission or outline.transmission,
+                    "drivetrain": variant.drivetrain or outline.drivetrain,
+                }
+            )
+        )
+    return kept
+
+
+@dataclass
+class _Spend:
+    attempts: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 @dataclass
@@ -163,26 +237,30 @@ class BrochureExtractor:
                 f"each page starts with a [Page N] line.\n\n{page_text}"
             )
 
+        spend = _Spend()
         try:
-            result = self.provider.generate_structured(
-                system=system_prompt(),
-                prompt=prompt,
-                schema=BrochureExtraction,
-                files=files,
-                max_output_tokens=self.max_output_tokens,
-            )
+            if self._hit_ceiling_before(db, version):
+                logger.info("extraction_in_parts version=%s reason=earlier_run_truncated", version.id)
+                value = self._in_parts(prompt, files, spend)
+            else:
+                try:
+                    value = self._call(prompt, files, BrochureExtraction, spend)
+                except LLMOutputError as exc:
+                    if exc.finish_reason != TRUNCATED:
+                        raise
+                    logger.info("extraction_in_parts version=%s reason=truncated", version.id)
+                    value = self._in_parts(prompt, files, spend)
         except LLMOutputError as exc:
-            run.attempts = 1
+            self._record_spend(run, spend, at_least_one=True)
             run.raw_output = {"text": exc.raw_text[:RAW_TEXT_LIMIT], "finish_reason": exc.finish_reason}
             return self._finish(db, outcome, "invalid", exc.error_type, str(exc))
         except LLMError as exc:
+            self._record_spend(run, spend)
             return self._finish(db, outcome, "failed", exc.error_type, str(exc))
 
-        run.attempts = result.attempts
-        run.input_tokens = result.usage.input_tokens
-        run.output_tokens = result.usage.output_tokens
-        extraction, unknown = clean_extraction(result.value)
-        run.raw_output = result.value.model_dump(mode="json")
+        self._record_spend(run, spend)
+        extraction, unknown = clean_extraction(value)
+        run.raw_output = value.model_dump(mode="json")
         run.unknown_keys = len(unknown)
         run.variants_found = len(extraction.variants)
         outcome.unknown_keys = unknown
@@ -194,6 +272,88 @@ class BrochureExtractor:
             )
         outcome.extraction = extraction
         return self._finish(db, outcome, "succeeded", None, None)
+
+    def _call[T: BaseModel](self, prompt: str, files: list[Path], schema: type[T], spend: _Spend) -> T:
+        try:
+            result = self.provider.generate_structured(
+                system=system_prompt(),
+                prompt=prompt,
+                schema=schema,
+                files=files,
+                max_output_tokens=self.max_output_tokens,
+            )
+        except LLMOutputError:
+            spend.attempts += 1
+            raise
+        spend.attempts += result.attempts
+        spend.input_tokens += result.usage.input_tokens
+        spend.output_tokens += result.usage.output_tokens
+        return result.value
+
+    def _in_parts(self, prompt: str, files: list[Path], spend: _Spend) -> BrochureExtraction:
+        index = self._call(prompt + INDEX_INSTRUCTION, files, VariantIndex, spend)
+        merged = BrochureExtraction(
+            model_name=index.model_name,
+            body_type=index.body_type,
+            contains_specifications=index.contains_specifications,
+            common_specs=[],
+            variants=[],
+        )
+        if not index.contains_specifications or not index.variants:
+            return merged
+        outlines = list({o.name: o for o in index.variants}.values())  # names must be unique
+        pending = [outlines[i : i + VARIANT_BATCH_SIZE] for i in range(0, len(outlines), VARIANT_BATCH_SIZE)]
+        first = True
+        while pending:
+            batch = pending.pop(0)
+            try:
+                part = self._call(
+                    prompt + batch_instruction([o.name for o in batch], first=first),
+                    files,
+                    BrochureExtraction,
+                    spend,
+                )
+            except LLMOutputError as exc:
+                if exc.finish_reason != TRUNCATED or len(batch) == 1:
+                    raise
+                half = len(batch) // 2
+                pending[:0] = [batch[:half], batch[half:]]
+                continue
+            if first:
+                merged.common_specs = part.common_specs
+                first = False
+            merged.variants.extend(_only_listed(part.variants, batch, merged.variants))
+        return merged
+
+    def _hit_ceiling_before(self, db: Session, version: BrochureVersion) -> bool:
+        """Whether this content (by digest, within the brand) was cut off at the output
+        ceiling under the current prompt and model."""
+        brand_id = db.execute(
+            select(Brochure.brand_id).where(Brochure.id == version.brochure_id)
+        ).scalar_one()
+        found = db.execute(
+            select(ExtractionRun.id)
+            .join(BrochureVersion, BrochureVersion.id == ExtractionRun.brochure_version_id)
+            .join(Brochure, Brochure.id == BrochureVersion.brochure_id)
+            .where(
+                BrochureVersion.sha256 == version.sha256,
+                Brochure.brand_id == brand_id,
+                ExtractionRun.prompt_version == prompt_version(),
+                ExtractionRun.llm_model == self.provider.model,
+                ExtractionRun.status == "invalid",
+                ExtractionRun.raw_output["finish_reason"].astext == TRUNCATED,
+            )
+            .limit(1)
+        ).first()
+        return found is not None
+
+    @staticmethod
+    def _record_spend(run: ExtractionRun, spend: _Spend, *, at_least_one: bool = False) -> None:
+        """Totals over every request of the run (one, or the parts of a large brochure)."""
+        run.attempts = max(spend.attempts, 1) if at_least_one else spend.attempts
+        if spend.input_tokens or spend.output_tokens:
+            run.input_tokens = spend.input_tokens
+            run.output_tokens = spend.output_tokens
 
     @staticmethod
     def _page_text(db: Session, version: BrochureVersion) -> str:

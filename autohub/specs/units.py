@@ -60,7 +60,7 @@ UNIT_FAMILIES: dict[str, dict[str, Decimal]] = {
 _NOTE_UNITS = {"km/kg": "unit_km_per_kg"}
 
 _NUMBER = r"\d+(?:\.\d+)?"
-_RANGE_SEP = r"\s*(?:-|–|—|to)\s*"
+_RANGE_SEP = r"\s*(?:-|–|—|~|to)\s*"  # Hyundai writes rpm ranges as "1500~3 500"
 # unit token: letters, '/', '³', '°', '"', '-', '.' (e.g. "r/min", "kg-m", "km/l")
 _UNIT = r"[A-Za-z°\"”³][A-Za-z0-9°\"”³/\-.]*"
 _QUANTITY_RE = re.compile(
@@ -72,6 +72,9 @@ _AT_RPM_RE = re.compile(
     re.IGNORECASE,
 )
 _THOUSANDS_RE = re.compile(r"(?<=\d),(?=\d{3}\b)")
+# "3 815 mm" (Hyundai's thin-space grouping): a 1-3 digit group, one space, then exactly three
+# digits that end the number. "37 CNG", "6 360" inside words and decimals are left alone.
+_SPACE_THOUSANDS_RE = re.compile(r"(?<![\d.,])(\d{1,3})[    ](?=\d{3}(?![\d.,]))")
 
 _QUANT = Decimal("0.0001")
 
@@ -90,7 +93,7 @@ class ParsedQuantity:
 
 
 def _clean_number_text(text: str) -> str:
-    return _THOUSANDS_RE.sub("", text)
+    return _SPACE_THOUSANDS_RE.sub(r"\1", _THOUSANDS_RE.sub("", text))
 
 
 def _norm_unit(token: str | None) -> str | None:

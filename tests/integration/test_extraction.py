@@ -56,7 +56,15 @@ def extraction(
 
 
 class Env:
-    def __init__(self, db: Session, tmp_path: Path, answers: list[Any], *, hint: str = "Model Q") -> None:
+    def __init__(
+        self,
+        db: Session,
+        tmp_path: Path,
+        answers: list[Any],
+        *,
+        hint: str = "Model Q",
+        title: str | None = None,
+    ) -> None:
         self.db = db
         self.brand = make_brand(db)
         self.store = BrochureStore(tmp_path)
@@ -68,6 +76,7 @@ class Env:
             source_url="https://www.testa.example/q.pdf",
             layout_group="q",
             model_hint=hint,
+            title=title,
         )
         db.add(self.brochure)
         db.flush()
@@ -175,7 +184,7 @@ def test_unknown_keys_are_dropped_and_counted(db: Session, tmp_path: Path) -> No
         (LLMQuotaError("daily quota exhausted"), "failed", "quota"),
         (LLMTimeoutError("timed out"), "failed", "timeout"),
         (
-            LLMOutputError("truncated", raw_text='{"model', finish_reason="MAX_TOKENS"),
+            LLMOutputError("stopped", raw_text='{"model', finish_reason="SAFETY"),
             "invalid",
             "invalid_output",
         ),
@@ -208,7 +217,7 @@ def test_every_failure_mode_is_recorded_and_writes_nothing(
     assert summary is None and spec_count(db) == before
     assert value(db, lx.id, "length").value_num == Decimal("4395")  # type: ignore[union-attr]
     if status == "invalid" and isinstance(answer, LLMOutputError):
-        assert outcome.run.raw_output == {"text": '{"model', "finish_reason": "MAX_TOKENS"}
+        assert outcome.run.raw_output == {"text": '{"model', "finish_reason": "SAFETY"}
 
 
 def test_missing_file_is_a_failed_run_without_calling_the_provider(db: Session, tmp_path: Path) -> None:
@@ -476,3 +485,136 @@ def test_unique_printed_names_are_kept_and_completed_names_still_match(db: Sessi
     _, summary = env.run()
     assert summary.variants_matched == 1 and summary.variants_created == 0
     assert value(db, older.id, "airbags") is not None
+
+
+def test_powertrain_wording_of_another_brochure_matches_the_same_variant(db: Session, tmp_path: Path) -> None:
+    env = Env(
+        db,
+        tmp_path,
+        [extraction([variant("Pure + CNG 6MT", [spec("airbags", "6")], fuel="CNG", trans="6MT")])],
+    )
+    model = make_model(db, env.brand)
+    icng = make_variant(db, model, "Pure+ 1.2L Revotron 6MT", fuel_type="cng", transmission_type="manual")
+    _, summary = env.run()
+    assert summary.variants_matched == 1 and summary.variants_created == 0
+    assert value(db, icng.id, "airbags") is not None
+
+
+def test_powertrain_match_must_be_unique_and_not_a_sibling_of_the_same_brochure(
+    db: Session, tmp_path: Path
+) -> None:
+    rows = [
+        variant("Pure Petrol 6MT", [spec("airbags", "6")], fuel="Petrol", trans="6MT"),
+        variant("Pure 1.2L Revotron 6MT", [spec("airbags", "6")], fuel="Petrol", trans="6MT"),
+    ]
+    env = Env(db, tmp_path, [extraction(rows)])
+    model = make_model(db, env.brand)
+    make_variant(db, model, "Pure 1.2L Revotron Petrol 6MT")
+    make_variant(db, model, "Pure 1.2L Turbo Petrol 6MT")
+    _, summary = env.run()
+    # "Pure Petrol 6MT" fits both existing rows: ambiguous, so created. The second row
+    # matches its existing twin, not the variant this run just created.
+    assert summary.variants_created == 1 and summary.variants_matched == 1
+
+
+def test_edition_brochure_names_its_variants_and_keeps_them_apart(db: Session, tmp_path: Path) -> None:
+    env = Env(
+        db,
+        tmp_path,
+        [extraction([variant("Pure L 1.5L Revotron MT", [spec("airbags", "6")], fuel="Petrol", trans="MT")])],
+        title="Model Q #DARK Brochure",
+    )
+    model = make_model(db, env.brand)
+    standard = make_variant(db, model, "Pure L 1.5L NA Revotron Petrol 6MT")
+    _, summary = env.run()
+    assert summary.variants_created == 1 and summary.variants_matched == 0
+    assert value(db, standard.id, "airbags") is None
+    names = set(db.execute(select(Variant.name)).scalars())
+    assert "Pure L 1.5L Revotron MT #DARK" in names
+
+
+# ---------------------------------------------------------------- brochures too large for one answer
+def truncated() -> LLMOutputError:
+    return LLMOutputError("output was truncated (MAX_TOKENS)", raw_text='{"model', finish_reason="MAX_TOKENS")
+
+
+def outline(*names: str) -> dict[str, Any]:
+    return {
+        "model_name": "Model Q",
+        "body_type": "SUV",
+        "contains_specifications": True,
+        "variants": [
+            {"name": n, "fuel_type": "Diesel", "transmission": "6MT", "drivetrain": None} for n in names
+        ],
+    }
+
+
+def test_truncated_brochure_is_extracted_in_parts_and_merged(
+    db: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(extractor_module, "VARIANT_BATCH_SIZE", 2)
+    answers = [
+        truncated(),
+        outline("Smart MT", "Pure MT", "Adventure MT"),
+        extraction(
+            [
+                variant("Smart  MT", [spec("airbags", "6")]),  # spacing differs from the list
+                variant("Pure MT", [spec("airbags", "6")]),
+                variant("Fearless MT", [spec("airbags", "7")]),  # not in this part: dropped
+            ],
+            common=[spec("length", "4605 mm")],
+        ),
+        extraction([variant("Adventure MT", [spec("airbags", "7")])], common=[spec("length", "9999 mm")]),
+    ]
+    env = Env(db, tmp_path, answers)
+
+    outcome, summary = env.run()
+
+    assert outcome.run.status == "succeeded" and summary.variants_created == 3
+    assert outcome.run.attempts == 4 and outcome.run.output_tokens == 60  # three answered requests
+    assert outcome.extraction is not None
+    assert [v.name for v in outcome.extraction.variants] == ["Smart MT", "Pure MT", "Adventure MT"]
+    assert [v.transmission for v in outcome.extraction.variants] == ["6MT"] * 3  # filled from the list
+    assert [s.value for s in outcome.extraction.common_specs] == ["4605 mm"]  # first part only
+    prompts = [call.prompt for call in env.provider.calls]
+    assert "list every variant only" in prompts[1]
+    assert "- Smart MT\n- Pure MT" in prompts[2] and "Fill common_specs" in prompts[2]
+    assert "- Adventure MT" in prompts[3] and "empty list" in prompts[3]
+
+
+def test_a_part_that_is_still_too_long_is_halved(
+    db: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(extractor_module, "VARIANT_BATCH_SIZE", 2)
+    answers = [
+        truncated(),
+        outline("A MT", "B MT"),
+        truncated(),
+        extraction([variant("A MT", [spec("airbags", "6")])], common=[spec("length", "4605 mm")]),
+        extraction([variant("B MT", [spec("airbags", "6")])]),
+    ]
+    env = Env(db, tmp_path, answers)
+    outcome, summary = env.run()
+    assert outcome.run.status == "succeeded" and summary.variants_created == 2
+    assert outcome.run.attempts == 5
+
+
+def test_content_cut_off_before_starts_with_the_variant_list(db: Session, tmp_path: Path) -> None:
+    answers = [outline("A MT"), extraction([variant("A MT", [spec("airbags", "6")])])]
+    env = Env(db, tmp_path, [truncated(), truncated()])
+    first, _ = env.run()
+    assert first.run.status == "invalid"
+    env.provider.answers = answers
+    env.provider.calls.clear()
+
+    outcome, _ = env.run()  # a later pipeline run over the same content
+
+    assert outcome.run.status == "succeeded"
+    assert len(env.provider.calls) == 2 and "list every variant only" in env.provider.calls[0].prompt
+
+
+def test_variant_list_that_is_cut_off_too_is_an_invalid_run(db: Session, tmp_path: Path) -> None:
+    env = Env(db, tmp_path, [truncated(), truncated()])
+    outcome, summary = env.run()
+    assert outcome.run.status == "invalid" and summary is None
+    assert outcome.run.attempts == 2 and outcome.run.raw_output["finish_reason"] == "MAX_TOKENS"
