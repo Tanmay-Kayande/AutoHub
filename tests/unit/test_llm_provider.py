@@ -150,6 +150,23 @@ def test_daily_quota_raises_at_once_without_retry() -> None:
     assert len(models.calls) == 1 and sleeps == []
 
 
+def test_spend_cap_is_a_quota_error_without_retry() -> None:
+    cap = errors.ClientError(
+        403,
+        {
+            "error": {
+                "code": 403,
+                "status": "PERMISSION_DENIED",
+                "message": "Spend cap breached for project: p",
+            }
+        },
+    )
+    provider, models, sleeps = make([cap])
+    with pytest.raises(LLMQuotaError, match="spend cap reached"):
+        call(provider)
+    assert len(models.calls) == 1 and sleeps == []
+
+
 def test_rate_limit_that_outlasts_retries_is_a_quota_error() -> None:
     provider, models, _ = make([api_error(429)] * 4, max_attempts=4)
     with pytest.raises(LLMQuotaError, match="rate limited"):

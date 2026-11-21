@@ -50,7 +50,7 @@ class LLMError(Exception):
 
 
 class LLMQuotaError(LLMError):
-    """Daily quota exhausted, or still rate-limited after every retry."""
+    """Daily quota exhausted, project spend cap reached, or still rate-limited after every retry."""
 
     error_type = "quota"
 
@@ -166,6 +166,9 @@ def _quota_details(details: Any) -> tuple[bool, float | None]:
                 delay = float(match.group(1))
     return daily, delay
 
+
+SPEND_CAP_MARKER = "spend cap"
+SPEND_CAP_PREFIX = "spend cap reached"
 
 # Vertex AI Flex PayGo: standard on-demand capacity only, served at the flex price.
 FLEX_HEADERS = {"X-Vertex-AI-LLM-Request-Type": "shared", "X-Vertex-AI-LLM-Shared-Request-Type": "flex"}
@@ -415,6 +418,8 @@ class GeminiProvider:
         if isinstance(error, (LLMRequestError, LLMOutputError)):
             return False, 0.0
         if isinstance(error, LLMQuotaError):
+            if str(error).startswith(SPEND_CAP_PREFIX):
+                return False, 0.0
             daily, server_delay = _quota_details(getattr(exc, "details", None))
             if daily:
                 return False, 0.0
@@ -433,6 +438,9 @@ class GeminiProvider:
             if code == 429:
                 daily, _ = _quota_details(exc.details)
                 return LLMQuotaError(("daily quota exhausted - " if daily else "rate limited - ") + text)
+            if code == 403 and SPEND_CAP_MARKER in text.lower():
+                # The Google Cloud project's spending limit: every further call is refused until raised.
+                return LLMQuotaError(f"{SPEND_CAP_PREFIX} - {text}")
             if code in _RETRYABLE_STATUS or code >= 500:
                 return LLMUnavailableError(text)
             return LLMRequestError(text)
