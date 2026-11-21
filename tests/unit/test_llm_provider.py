@@ -11,6 +11,7 @@ import pytest
 from google.genai import errors
 from pydantic import BaseModel
 
+import autohub.assistant.llm as llm_module
 from autohub.assistant.llm import (
     FakeLLMProvider,
     GeminiProvider,
@@ -258,6 +259,33 @@ def test_thinking_budget_is_only_sent_to_gemini_2_5() -> None:
     provider = GeminiProvider(model="gemini-3.5-flash-lite", client=client)
     provider.generate_structured(system="s", prompt="p", schema=Answer)
     assert client.models.calls[0]["config"].thinking_config is None
+
+
+def test_thinking_level_is_sent_to_gemini_3() -> None:
+    client = SimpleNamespace(models=FakeModels([response('{"name": "x", "count": 1}')]), files=FakeFiles())
+    provider = GeminiProvider(model="gemini-3.5-flash", client=client, thinking_level="low")
+    provider.generate_structured(system="s", prompt="p", schema=Answer)
+    assert client.models.calls[0]["config"].thinking_config.thinking_level.value == "LOW"
+
+
+@pytest.mark.parametrize(("vertexai", "expected"), [(True, llm_module.FLEX_HEADERS), (False, None)])
+def test_flex_sends_the_tier_headers_on_vertex_only(
+    monkeypatch: pytest.MonkeyPatch, vertexai: bool, expected: Any
+) -> None:
+    import google.genai
+
+    seen: dict[str, Any] = {}
+    monkeypatch.setattr(google.genai, "Client", lambda **kwargs: seen.update(kwargs) or SimpleNamespace())
+    provider = GeminiProvider(api_key="k", model="gemini-3.5-flash", vertexai=vertexai, flex=True)
+    assert provider.flex is vertexai and seen["http_options"].headers == expected
+
+
+def test_service_tier_reads_the_billed_traffic_type() -> None:
+    flex = SimpleNamespace(
+        usage_metadata=SimpleNamespace(traffic_type=SimpleNamespace(value="ON_DEMAND_FLEX"))
+    )
+    assert GeminiProvider._service_tier(flex) == "ON_DEMAND_FLEX"
+    assert GeminiProvider._service_tier(SimpleNamespace(usage_metadata=None)) is None
 
 
 def test_vertex_ai_attaches_inline_only_and_never_uploads(

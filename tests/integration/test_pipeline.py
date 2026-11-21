@@ -414,6 +414,8 @@ def test_extraction_provider_gets_its_own_timeout_and_retry_budget(
         "model": settings.extraction_model,
         "timeout_seconds": settings.extraction_timeout_seconds,
         "max_attempts": settings.extraction_max_attempts,
+        "thinking_level": settings.extraction_thinking_level,
+        "flex": settings.extraction_flex,
     }
     assert settings.extraction_timeout_seconds > settings.llm_timeout_seconds
     assert settings.extraction_max_attempts < settings.llm_max_attempts

@@ -12,7 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from autohub.core.errors import ConfigurationError
@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     # is a request against the daily quota, so a timed-out extraction is retried once only.
     extraction_timeout_seconds: float = Field(default=600.0, gt=0)
     extraction_max_attempts: int = Field(default=2, ge=1)
+    # Gemini 3.x thinking level for extraction (thinking tokens are billed as output); unset: model
+    # default. Measured on Venue with 3.5-flash: "low" listed 2 of 23 variants, "medium" saved nothing.
+    extraction_thinking_level: Literal["minimal", "low", "medium", "high"] | None = None
+    # Vertex AI only: extract on the Flex PayGo tier (about half price, slower).
+    extraction_flex: bool = False
     embedding_provider: str = "gemini"
     embedding_model: str = "gemini-embedding-001"
     embedding_version: str = "v1"
@@ -88,6 +93,11 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     scheduler_enabled: bool = True
     rate_limit_enabled: bool = True
+
+    @field_validator("extraction_thinking_level", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
 
     # ------------------------------------------------------------------ helpers
     @property

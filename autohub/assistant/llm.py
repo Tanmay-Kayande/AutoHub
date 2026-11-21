@@ -167,6 +167,10 @@ def _quota_details(details: Any) -> tuple[bool, float | None]:
     return daily, delay
 
 
+# Vertex AI Flex PayGo: standard on-demand capacity only, served at the flex price.
+FLEX_HEADERS = {"X-Vertex-AI-LLM-Request-Type": "shared", "X-Vertex-AI-LLM-Shared-Request-Type": "flex"}
+
+
 class GeminiProvider:
     name = "gemini"
 
@@ -182,8 +186,16 @@ class GeminiProvider:
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
         vertexai: bool = False,
+        thinking_level: str | None = None,
+        flex: bool = False,
     ) -> None:
         """``thinking_budget=0`` turns thinking off (cheapest); ``None`` leaves the model default.
+
+        Gemini 3.x takes ``thinking_level`` (minimal/low/medium/high) instead of a budget; unset
+        leaves the model default. Thinking tokens are billed as output.
+
+        ``flex=True`` (Vertex AI only) sends requests on the Flex PayGo tier: about half the
+        standard price, but slower and more often rate limited.
 
         ``vertexai=True`` sends requests to Vertex AI (billed to the key's Google Cloud project)
         instead of the Gemini Developer API. Vertex AI has no Files API, so PDFs must fit inline.
@@ -192,6 +204,8 @@ class GeminiProvider:
         self.vertexai = vertexai
         self._max_attempts = max_attempts
         self._thinking_budget = thinking_budget
+        self._thinking_level = thinking_level
+        self.flex = flex and vertexai
         self._sleep = sleep
         self._clock = clock
         if client is None:
@@ -204,7 +218,9 @@ class GeminiProvider:
                 vertexai=vertexai,
                 api_key=api_key,
                 http_options=types.HttpOptions(
-                    timeout=int(timeout_seconds * 1000), retry_options=types.HttpRetryOptions(attempts=1)
+                    timeout=int(timeout_seconds * 1000),
+                    retry_options=types.HttpRetryOptions(attempts=1),
+                    headers=dict(FLEX_HEADERS) if self.flex else None,
                 ),
             )
         self._client = client
@@ -251,12 +267,14 @@ class GeminiProvider:
         value = parse_structured(schema, raw_text, finish_reason)
         usage = self._usage(response)
         logger.info(
-            "llm_call model=%s attempts=%s latency_ms=%s input_tokens=%s output_tokens=%s",
+            "llm_call model=%s tier=%s attempts=%s latency_ms=%s input_tokens=%s output_tokens=%s thoughts=%s",
             self.model,
+            self._service_tier(response),
             attempts,
             latency_ms,
             usage.input_tokens,
             usage.output_tokens,
+            self._thought_tokens(response),
         )
         return LLMResult(
             value=value,
@@ -304,10 +322,27 @@ class GeminiProvider:
     def _thinking(self) -> Any:
         from google.genai import types
 
-        # Only Gemini 2.5 accepts a thinking budget; 3.x models reject it (HTTP 400).
-        if self._thinking_budget is None or not self.model.startswith("gemini-2.5"):
+        # Only Gemini 2.5 accepts a thinking budget; 3.x models reject it (HTTP 400) and take a level.
+        if self.model.startswith("gemini-2.5"):
+            if self._thinking_budget is None:
+                return None
+            return types.ThinkingConfig(thinking_budget=self._thinking_budget)
+        if self._thinking_level:
+            return types.ThinkingConfig(thinking_level=self._thinking_level.upper())
+        return None
+
+    @staticmethod
+    def _service_tier(response: Any) -> str | None:
+        """The traffic type Vertex AI billed the request as (e.g. ON_DEMAND_FLEX), when it says so."""
+        traffic = getattr(getattr(response, "usage_metadata", None), "traffic_type", None)
+        if traffic is None:
             return None
-        return types.ThinkingConfig(thinking_budget=self._thinking_budget)
+        return str(getattr(traffic, "value", traffic))
+
+    @staticmethod
+    def _thought_tokens(response: Any) -> int:
+        meta = getattr(response, "usage_metadata", None)
+        return int(getattr(meta, "thoughts_token_count", 0) or 0)
 
     def _file_part(self, path: Path) -> tuple[Any, Any]:
         from google.genai import types
@@ -506,6 +541,8 @@ def get_llm_provider(
     model: str | None = None,
     timeout_seconds: float | None = None,
     max_attempts: int | None = None,
+    thinking_level: str | None = None,
+    flex: bool = False,
 ) -> LLMProvider:
     """The provider selected by ``LLM_PROVIDER``. Demands the API key only here.
 
@@ -520,6 +557,8 @@ def get_llm_provider(
             timeout_seconds=timeout_seconds or settings.llm_timeout_seconds,
             max_attempts=max_attempts or settings.llm_max_attempts,
             vertexai=settings.gemini_use_vertexai,
+            thinking_level=thinking_level,
+            flex=flex,
         )
     if settings.llm_provider == "fake":
         return FakeLLMProvider()

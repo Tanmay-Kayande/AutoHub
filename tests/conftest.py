@@ -44,6 +44,8 @@ os.environ.update(
         "SECRET_KEY": "test-only-secret-key-not-used-anywhere-else",
         "GEMINI_API_KEY": "",  # never reach a paid API from tests
         "GEMINI_USE_VERTEXAI": "false",  # a local .env choice must not change test behaviour
+        "EXTRACTION_THINKING_LEVEL": "",
+        "EXTRACTION_FLEX": "false",
         "SERPAPI_KEY": "",
         "DATA_DIR": _TMP_DATA_DIR,
         "SCHEDULER_ENABLED": "false",

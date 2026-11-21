@@ -84,6 +84,8 @@ def extract(
         model=settings.extraction_model,
         timeout_seconds=settings.extraction_timeout_seconds,
         max_attempts=settings.extraction_max_attempts,
+        thinking_level=settings.extraction_thinking_level,
+        flex=settings.extraction_flex,
     )
     extractor = BrochureExtractor(provider, BrochureStore(settings.brochure_dir))
     done = 0
