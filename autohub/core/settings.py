@@ -12,7 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from autohub.core.errors import ConfigurationError
@@ -48,12 +48,14 @@ class Settings(BaseSettings):
 
     # --- external services (optional) ---
     gemini_api_key: SecretStr | None = None
+    # True: GEMINI_API_KEY is a Vertex AI key and calls are billed to its Google Cloud project.
+    gemini_use_vertexai: bool = False
     serpapi_key: SecretStr | None = None
 
     # --- LLM / embeddings ---
     llm_provider: str = "gemini"
     llm_model: str = "gemini-3.5-flash-lite"  # assistant; own free-tier quota, separate from extraction
-    extraction_model: str = "gemini-2.5-flash"
+    extraction_model: str = "gemini-3.5-flash"  # prompt v2.3 was tuned and checked on this model
     llm_timeout_seconds: float = Field(default=180.0, gt=0)
     llm_max_attempts: int = Field(default=4, ge=1)
     # Extraction output runs to tens of thousands of tokens (about 230 tokens/s measured), so
@@ -61,13 +63,18 @@ class Settings(BaseSettings):
     # is a request against the daily quota, so a timed-out extraction is retried once only.
     extraction_timeout_seconds: float = Field(default=600.0, gt=0)
     extraction_max_attempts: int = Field(default=2, ge=1)
+    # Gemini 3.x thinking level for extraction (thinking tokens are billed as output); unset: model
+    # default. Measured on Venue with 3.5-flash: "low" listed 2 of 23 variants, "medium" saved nothing.
+    extraction_thinking_level: Literal["minimal", "low", "medium", "high"] | None = None
+    # Vertex AI only: extract on the Flex PayGo tier (about half price, slower).
+    extraction_flex: bool = False
     embedding_provider: str = "gemini"
     embedding_model: str = "gemini-embedding-001"
     embedding_version: str = "v1"
 
     # --- ingestion ---
     data_dir: Path = REPO_ROOT / "data"
-    enabled_brands: str = "mahindra,hyundai,tata"
+    enabled_brands: str = "mahindra,hyundai,tata,kia"
     crawler_user_agent: str = "AutoHubBot/2.0 (+automotive brochure indexer; contact: site owner)"
     crawler_delay_seconds: float = Field(default=2.0, ge=0)
     crawler_max_pages_per_brand: int = Field(default=60, ge=1)
@@ -86,6 +93,11 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     scheduler_enabled: bool = True
     rate_limit_enabled: bool = True
+
+    @field_validator("extraction_thinking_level", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
 
     # ------------------------------------------------------------------ helpers
     @property

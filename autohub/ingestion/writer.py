@@ -6,16 +6,18 @@ the model's current generation, then hands the normalised values to
 :func:`autohub.specs.service.apply_spec_values`, which owns the guarded write
 rule and history.
 
-Nothing here deletes: a variant missing from a newer brochure stays as it is,
-and an empty value never blanks a stored one. The caller owns the transaction
-(one brochure = one transaction).
+Nothing here deletes, and an empty value never blanks a stored one. A variant
+missing from a newer extraction of the brochure that alone supplied it is
+retired (``is_active = False``, see :func:`_retire_superseded`); every other
+variant stays as it is. The caller owns the transaction (one brochure = one
+transaction).
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from difflib import SequenceMatcher
@@ -36,9 +38,10 @@ from autohub.db.models import (
     ExtractionRun,
     ModelGeneration,
     Variant,
+    VariantSpec,
     VehicleModel,
 )
-from autohub.ingestion.extraction.schema import BrochureExtraction, ExtractedVariant
+from autohub.ingestion.extraction.schema import BrochureExtraction, ExtractedVariant, extraction_from_raw
 from autohub.ingestion.normalize import Provenance, normalize_specs
 from autohub.specs.service import ApplyResult, SpecValueInput, apply_spec_values
 from autohub.specs.taxonomy import get_spec
@@ -46,6 +49,9 @@ from autohub.specs.taxonomy import get_spec
 logger = logging.getLogger(__name__)
 
 MODEL_MATCH_RATIO = 0.9  # "XUV 3XO EV" vs "XUV 3XO" is 0.86 and must not match
+# An extraction listing fewer than half the variants its brochure supplied before is
+# treated as incomplete (e.g. one row per engine instead of every trim): nothing retires.
+RETIRE_MIN_SHARE = 0.5
 _NON_ALNUM = re.compile(r"[^a-z0-9+]+")
 
 
@@ -217,6 +223,8 @@ class WriteSummary:
     variants_matched: int = 0
     not_applicable_skipped: int = 0
     ambiguous_variants: int = 0  # same name twice in one extraction: skipped, never merged
+    retired: list[str] = field(default_factory=list)  # names of variants set inactive
+    retire_skipped: str | None = None  # why superseded variants were kept, if they were
     result: ApplyResult = field(default_factory=ApplyResult)
 
 
@@ -345,6 +353,82 @@ def _applicable(values: list[SpecValueInput], fuel_type: str | None) -> tuple[li
     return kept, len(values) - len(kept)
 
 
+def _listed_by_other_brochures(db: Session, brochure: Brochure, model_id: int) -> list[ExtractedVariant]:
+    """Variants in the latest successful extraction of every other active brochure of the model."""
+    others = db.execute(
+        select(Brochure.id).where(
+            Brochure.model_id == model_id, Brochure.id != brochure.id, Brochure.is_active.is_(True)
+        )
+    ).scalars()
+    listed: list[ExtractedVariant] = []
+    for other_id in others:
+        raw = db.execute(
+            select(ExtractionRun.raw_output)
+            .join(BrochureVersion, BrochureVersion.id == ExtractionRun.brochure_version_id)
+            .where(BrochureVersion.brochure_id == other_id, ExtractionRun.status == "succeeded")
+            .order_by(ExtractionRun.id.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if raw:
+            try:
+                listed.extend(extraction_from_raw(raw).variants)
+            except ValueError:
+                logger.warning("retire_check_unreadable_output brochure_id=%s", other_id)
+    return listed
+
+
+def _retire_superseded(
+    db: Session,
+    brochure: Brochure,
+    model_id: int,
+    existing: list[Variant],
+    touched: set[int],
+    summary: WriteSummary,
+) -> None:
+    """Set inactive the variants this brochure alone supplied that its new extraction no longer lists.
+
+    A variant is kept when any of its values came from another source (another brochure,
+    the V1 import, a manual edit), when another brochure's latest extraction still lists it
+    (an unchanged value keeps the provenance of whichever brochure wrote it first), or when
+    it has no values at all. Nothing retires when the new extraction looks incomplete.
+    """
+    candidates = [v for v in existing if v.is_active and v.id not in touched]
+    if not candidates:
+        return
+    sources: dict[int, set[tuple[str, int | None]]] = defaultdict(set)
+    for variant_id, source_type, brochure_id in db.execute(
+        select(VariantSpec.variant_id, VariantSpec.source_type, BrochureVersion.brochure_id)
+        .outerjoin(BrochureVersion, BrochureVersion.id == VariantSpec.brochure_version_id)
+        .where(VariantSpec.variant_id.in_([v.id for v in candidates]))
+    ):
+        sources[variant_id].add((source_type, brochure_id))
+    only_here = {("official_brochure", brochure.id)}
+    superseded = [v for v in candidates if sources.get(v.id) == only_here]
+    if not superseded:
+        return
+    previously = len(superseded) + summary.variants_matched
+    if summary.variants_matched + summary.variants_created < RETIRE_MIN_SHARE * previously:
+        summary.retire_skipped = (
+            f"extraction lists {summary.variants_matched + summary.variants_created} variants; "
+            f"the brochure supplied {previously}"
+        )
+        logger.warning("retire_skipped brochure_id=%s reason=%s", brochure.id, summary.retire_skipped)
+        return
+    elsewhere = _listed_by_other_brochures(db, brochure, model_id)
+    for variant in superseded:
+        codes = (variant.fuel_type, variant.transmission_type)
+        if any(
+            name_tokens(variant.name) == name_tokens(o.name)
+            or same_car(variant.name, codes, o.name, _codes(o))
+            for o in elsewhere
+        ):
+            continue
+        variant.is_active = False
+        summary.retired.append(variant.name)
+    if summary.retired:
+        logger.info("variants_retired brochure_id=%s names=%s", brochure.id, summary.retired)
+
+
 def write_extraction(
     db: Session,
     *,
@@ -410,6 +494,9 @@ def write_extraction(
         summary.result.merge(
             apply_spec_values(db, variant.id, values, run_id=run.id, reason=f"brochure version {version.id}")
         )
+
+    if not common_only:
+        _retire_superseded(db, brochure, model.id, existing, {v.id for v, _ in targets}, summary)
 
     run.specs_written = summary.result.written
     run.specs_unchanged = summary.result.unchanged

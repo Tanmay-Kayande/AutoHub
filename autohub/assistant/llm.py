@@ -50,7 +50,7 @@ class LLMError(Exception):
 
 
 class LLMQuotaError(LLMError):
-    """Daily quota exhausted, or still rate-limited after every retry."""
+    """Daily quota exhausted, project spend cap reached, or still rate-limited after every retry."""
 
     error_type = "quota"
 
@@ -167,6 +167,13 @@ def _quota_details(details: Any) -> tuple[bool, float | None]:
     return daily, delay
 
 
+SPEND_CAP_MARKER = "spend cap"
+SPEND_CAP_PREFIX = "spend cap reached"
+
+# Vertex AI Flex PayGo: standard on-demand capacity only, served at the flex price.
+FLEX_HEADERS = {"X-Vertex-AI-LLM-Request-Type": "shared", "X-Vertex-AI-LLM-Shared-Request-Type": "flex"}
+
+
 class GeminiProvider:
     name = "gemini"
 
@@ -181,11 +188,27 @@ class GeminiProvider:
         client: Any = None,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
+        vertexai: bool = False,
+        thinking_level: str | None = None,
+        flex: bool = False,
     ) -> None:
-        """``thinking_budget=0`` turns thinking off (cheapest); ``None`` leaves the model default."""
+        """``thinking_budget=0`` turns thinking off (cheapest); ``None`` leaves the model default.
+
+        Gemini 3.x takes ``thinking_level`` (minimal/low/medium/high) instead of a budget; unset
+        leaves the model default. Thinking tokens are billed as output.
+
+        ``flex=True`` (Vertex AI only) sends requests on the Flex PayGo tier: about half the
+        standard price, but slower and more often rate limited.
+
+        ``vertexai=True`` sends requests to Vertex AI (billed to the key's Google Cloud project)
+        instead of the Gemini Developer API. Vertex AI has no Files API, so PDFs must fit inline.
+        """
         self.model = model
+        self.vertexai = vertexai
         self._max_attempts = max_attempts
         self._thinking_budget = thinking_budget
+        self._thinking_level = thinking_level
+        self.flex = flex and vertexai
         self._sleep = sleep
         self._clock = clock
         if client is None:
@@ -195,9 +218,12 @@ class GeminiProvider:
             if not api_key:
                 raise LLMRequestError("Gemini API key is not configured")
             client = genai.Client(
+                vertexai=vertexai,
                 api_key=api_key,
                 http_options=types.HttpOptions(
-                    timeout=int(timeout_seconds * 1000), retry_options=types.HttpRetryOptions(attempts=1)
+                    timeout=int(timeout_seconds * 1000),
+                    retry_options=types.HttpRetryOptions(attempts=1),
+                    headers=dict(FLEX_HEADERS) if self.flex else None,
                 ),
             )
         self._client = client
@@ -244,12 +270,14 @@ class GeminiProvider:
         value = parse_structured(schema, raw_text, finish_reason)
         usage = self._usage(response)
         logger.info(
-            "llm_call model=%s attempts=%s latency_ms=%s input_tokens=%s output_tokens=%s",
+            "llm_call model=%s tier=%s attempts=%s latency_ms=%s input_tokens=%s output_tokens=%s thoughts=%s",
             self.model,
+            self._service_tier(response),
             attempts,
             latency_ms,
             usage.input_tokens,
             usage.output_tokens,
+            self._thought_tokens(response),
         )
         return LLMResult(
             value=value,
@@ -297,10 +325,27 @@ class GeminiProvider:
     def _thinking(self) -> Any:
         from google.genai import types
 
-        # Only Gemini 2.5 accepts a thinking budget; 3.x models reject it (HTTP 400).
-        if self._thinking_budget is None or not self.model.startswith("gemini-2.5"):
+        # Only Gemini 2.5 accepts a thinking budget; 3.x models reject it (HTTP 400) and take a level.
+        if self.model.startswith("gemini-2.5"):
+            if self._thinking_budget is None:
+                return None
+            return types.ThinkingConfig(thinking_budget=self._thinking_budget)
+        if self._thinking_level:
+            return types.ThinkingConfig(thinking_level=self._thinking_level.upper())
+        return None
+
+    @staticmethod
+    def _service_tier(response: Any) -> str | None:
+        """The traffic type Vertex AI billed the request as (e.g. ON_DEMAND_FLEX), when it says so."""
+        traffic = getattr(getattr(response, "usage_metadata", None), "traffic_type", None)
+        if traffic is None:
             return None
-        return types.ThinkingConfig(thinking_budget=self._thinking_budget)
+        return str(getattr(traffic, "value", traffic))
+
+    @staticmethod
+    def _thought_tokens(response: Any) -> int:
+        meta = getattr(response, "usage_metadata", None)
+        return int(getattr(meta, "thoughts_token_count", 0) or 0)
 
     def _file_part(self, path: Path) -> tuple[Any, Any]:
         from google.genai import types
@@ -308,6 +353,11 @@ class GeminiProvider:
         size = path.stat().st_size
         if size <= INLINE_FILE_LIMIT_BYTES:
             return types.Part.from_bytes(data=path.read_bytes(), mime_type="application/pdf"), None
+        if self.vertexai:
+            raise LLMRequestError(
+                f"{path.name} is {size} bytes; Vertex AI accepts PDFs up to "
+                f"{INLINE_FILE_LIMIT_BYTES} bytes inline and has no Files API"
+            )
         remote, _ = self.call_with_retry(
             lambda: self._client.files.upload(file=str(path), config={"mime_type": "application/pdf"})
         )
@@ -324,6 +374,11 @@ class GeminiProvider:
             self._delete_file(remote)
             raise LLMRequestError(f"uploaded file {path.name} was not accepted (state {remote.state})")
         return types.Part.from_uri(file_uri=remote.uri, mime_type="application/pdf"), remote
+
+    @property
+    def max_pdf_bytes(self) -> int | None:
+        """Largest PDF this provider can attach, or None for the caller's own limit."""
+        return INLINE_FILE_LIMIT_BYTES if self.vertexai else None
 
     def _delete_file(self, remote: Any) -> None:
         try:
@@ -363,6 +418,8 @@ class GeminiProvider:
         if isinstance(error, (LLMRequestError, LLMOutputError)):
             return False, 0.0
         if isinstance(error, LLMQuotaError):
+            if str(error).startswith(SPEND_CAP_PREFIX):
+                return False, 0.0
             daily, server_delay = _quota_details(getattr(exc, "details", None))
             if daily:
                 return False, 0.0
@@ -381,6 +438,9 @@ class GeminiProvider:
             if code == 429:
                 daily, _ = _quota_details(exc.details)
                 return LLMQuotaError(("daily quota exhausted - " if daily else "rate limited - ") + text)
+            if code == 403 and SPEND_CAP_MARKER in text.lower():
+                # The Google Cloud project's spending limit: every further call is refused until raised.
+                return LLMQuotaError(f"{SPEND_CAP_PREFIX} - {text}")
             if code in _RETRYABLE_STATUS or code >= 500:
                 return LLMUnavailableError(text)
             return LLMRequestError(text)
@@ -489,6 +549,8 @@ def get_llm_provider(
     model: str | None = None,
     timeout_seconds: float | None = None,
     max_attempts: int | None = None,
+    thinking_level: str | None = None,
+    flex: bool = False,
 ) -> LLMProvider:
     """The provider selected by ``LLM_PROVIDER``. Demands the API key only here.
 
@@ -502,6 +564,9 @@ def get_llm_provider(
             model=model or settings.llm_model,
             timeout_seconds=timeout_seconds or settings.llm_timeout_seconds,
             max_attempts=max_attempts or settings.llm_max_attempts,
+            vertexai=settings.gemini_use_vertexai,
+            thinking_level=thinking_level,
+            flex=flex,
         )
     if settings.llm_provider == "fake":
         return FakeLLMProvider()

@@ -73,8 +73,18 @@ def extraction(model: str) -> dict[str, Any]:
         "body_type": "suv",
         "contains_specifications": True,
         "common_specs": [{"key": "length", "value": "4300 mm", "unit": None, "status": "present", "page": 2}],
+        "powertrains": [],
+        "trims": [],
         "variants": [
-            {"name": "LX", "fuel_type": "Petrol", "transmission": "MT", "drivetrain": None, "specs": []}
+            {
+                "name": "LX",
+                "fuel_type": "Petrol",
+                "transmission": "MT",
+                "drivetrain": None,
+                "trim": None,
+                "powertrain": None,
+                "specs": [],
+            }
         ],
     }
 
@@ -414,6 +424,8 @@ def test_extraction_provider_gets_its_own_timeout_and_retry_budget(
         "model": settings.extraction_model,
         "timeout_seconds": settings.extraction_timeout_seconds,
         "max_attempts": settings.extraction_max_attempts,
+        "thinking_level": settings.extraction_thinking_level,
+        "flex": settings.extraction_flex,
     }
     assert settings.extraction_timeout_seconds > settings.llm_timeout_seconds
     assert settings.extraction_max_attempts < settings.llm_max_attempts

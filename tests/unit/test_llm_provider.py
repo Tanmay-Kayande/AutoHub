@@ -11,6 +11,7 @@ import pytest
 from google.genai import errors
 from pydantic import BaseModel
 
+import autohub.assistant.llm as llm_module
 from autohub.assistant.llm import (
     FakeLLMProvider,
     GeminiProvider,
@@ -149,6 +150,23 @@ def test_daily_quota_raises_at_once_without_retry() -> None:
     assert len(models.calls) == 1 and sleeps == []
 
 
+def test_spend_cap_is_a_quota_error_without_retry() -> None:
+    cap = errors.ClientError(
+        403,
+        {
+            "error": {
+                "code": 403,
+                "status": "PERMISSION_DENIED",
+                "message": "Spend cap breached for project: p",
+            }
+        },
+    )
+    provider, models, sleeps = make([cap])
+    with pytest.raises(LLMQuotaError, match="spend cap reached"):
+        call(provider)
+    assert len(models.calls) == 1 and sleeps == []
+
+
 def test_rate_limit_that_outlasts_retries_is_a_quota_error() -> None:
     provider, models, _ = make([api_error(429)] * 4, max_attempts=4)
     with pytest.raises(LLMQuotaError, match="rate limited"):
@@ -258,3 +276,68 @@ def test_thinking_budget_is_only_sent_to_gemini_2_5() -> None:
     provider = GeminiProvider(model="gemini-3.5-flash-lite", client=client)
     provider.generate_structured(system="s", prompt="p", schema=Answer)
     assert client.models.calls[0]["config"].thinking_config is None
+
+
+def test_thinking_level_is_sent_to_gemini_3() -> None:
+    client = SimpleNamespace(models=FakeModels([response('{"name": "x", "count": 1}')]), files=FakeFiles())
+    provider = GeminiProvider(model="gemini-3.5-flash", client=client, thinking_level="low")
+    provider.generate_structured(system="s", prompt="p", schema=Answer)
+    assert client.models.calls[0]["config"].thinking_config.thinking_level.value == "LOW"
+
+
+@pytest.mark.parametrize(("vertexai", "expected"), [(True, llm_module.FLEX_HEADERS), (False, None)])
+def test_flex_sends_the_tier_headers_on_vertex_only(
+    monkeypatch: pytest.MonkeyPatch, vertexai: bool, expected: Any
+) -> None:
+    import google.genai
+
+    seen: dict[str, Any] = {}
+    monkeypatch.setattr(google.genai, "Client", lambda **kwargs: seen.update(kwargs) or SimpleNamespace())
+    provider = GeminiProvider(api_key="k", model="gemini-3.5-flash", vertexai=vertexai, flex=True)
+    assert provider.flex is vertexai and seen["http_options"].headers == expected
+
+
+def test_service_tier_reads_the_billed_traffic_type() -> None:
+    flex = SimpleNamespace(
+        usage_metadata=SimpleNamespace(traffic_type=SimpleNamespace(value="ON_DEMAND_FLEX"))
+    )
+    assert GeminiProvider._service_tier(flex) == "ON_DEMAND_FLEX"
+    assert GeminiProvider._service_tier(SimpleNamespace(usage_metadata=None)) is None
+
+
+def test_vertex_ai_attaches_inline_only_and_never_uploads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import autohub.assistant.llm as llm
+
+    monkeypatch.setattr(llm, "INLINE_FILE_LIMIT_BYTES", 4)
+    pdf = tmp_path / "big.pdf"
+    pdf.write_bytes(b"%PDF-1.7 large")
+    provider, models, _ = make([], vertexai=True)
+    assert provider.max_pdf_bytes == 4
+    with pytest.raises(LLMRequestError, match="no Files API"):
+        call(provider, files=[pdf])
+    assert provider._client.files.uploaded == [] and models.calls == []
+
+
+def test_developer_api_leaves_the_pdf_limit_to_the_caller() -> None:
+    provider, _, _ = make([])
+    assert provider.vertexai is False and provider.max_pdf_bytes is None
+
+
+@pytest.mark.parametrize("vertexai", [False, True])
+def test_settings_choose_the_gemini_backend(monkeypatch: pytest.MonkeyPatch, vertexai: bool) -> None:
+    import google.genai
+
+    from autohub.assistant.llm import get_llm_provider
+    from autohub.core.settings import Settings
+    from autohub.search.embedder import get_embedder
+
+    built: list[dict[str, Any]] = []
+    monkeypatch.setattr(google.genai, "Client", lambda **kwargs: built.append(kwargs) or SimpleNamespace())
+    settings = Settings(_env_file=None, gemini_api_key="k", gemini_use_vertexai=vertexai)  # type: ignore[call-arg]
+    provider = get_llm_provider(settings)
+    embedder = get_embedder(settings)
+    assert [(b["vertexai"], b["api_key"]) for b in built] == [(vertexai, "k"), (vertexai, "k")]
+    assert isinstance(provider, GeminiProvider) and provider.vertexai is vertexai
+    assert embedder.model == settings.embedding_model

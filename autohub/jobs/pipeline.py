@@ -124,6 +124,8 @@ class Pipeline:
                 model=self.settings.extraction_model,
                 timeout_seconds=self.settings.extraction_timeout_seconds,
                 max_attempts=self.settings.extraction_max_attempts,
+                thinking_level=self.settings.extraction_thinking_level,
+                flex=self.settings.extraction_flex,
             )
         )
         self.store = store or BrochureStore(self.settings.data_dir / "brochures")

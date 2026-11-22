@@ -25,7 +25,8 @@ from autohub.db.models import (
 )
 from autohub.ingestion.extraction import extractor as extractor_module
 from autohub.ingestion.extraction.extractor import BrochureExtractor
-from autohub.ingestion.extraction.prompt import prompt_version
+from autohub.ingestion.extraction.prompt import EQUIVALENT_PROMPT_VERSIONS, prompt_version
+from autohub.ingestion.extraction.schema import extraction_from_raw
 from autohub.ingestion.store import BrochureStore
 from autohub.ingestion.writer import write_extraction
 from tests.factories import make_brand, make_model, make_variant
@@ -40,7 +41,15 @@ def spec(key: str, value: str, status: str = "present", unit: str | None = None)
 def variant(
     name: str, specs: list[dict[str, Any]], fuel: str | None = None, trans: str | None = None
 ) -> dict[str, Any]:
-    return {"name": name, "fuel_type": fuel, "transmission": trans, "drivetrain": None, "specs": specs}
+    return {
+        "name": name,
+        "fuel_type": fuel,
+        "transmission": trans,
+        "drivetrain": None,
+        "trim": None,
+        "powertrain": None,
+        "specs": specs,
+    }
 
 
 def extraction(
@@ -51,6 +60,8 @@ def extraction(
         "body_type": "SUV",
         "contains_specifications": True,
         "common_specs": common or [],
+        "powertrains": [],
+        "trims": [],
         "variants": variants,
     }
 
@@ -195,6 +206,8 @@ def test_unknown_keys_are_dropped_and_counted(db: Session, tmp_path: Path) -> No
                 "body_type": None,
                 "contains_specifications": False,
                 "common_specs": [],
+                "powertrains": [],
+                "trims": [],
                 "variants": [],
             },
             "empty",
@@ -310,6 +323,19 @@ def test_pdf_over_the_upload_limit_without_text_fails_without_calling_the_provid
     outcome, _ = env.run()
     assert outcome.run.status == "failed" and outcome.run.error_type == "file_too_large"
     assert env.provider.calls == []
+
+
+def test_a_provider_with_a_lower_pdf_limit_gets_page_text(db: Session, tmp_path: Path) -> None:
+    # Vertex AI has no Files API: a PDF above its inline limit goes as page text.
+    env = Env(db, tmp_path, [extraction([variant("LX", [spec("length", "4 m")])])])
+    env.provider.max_pdf_bytes = len(PDF) - 1  # type: ignore[attr-defined]
+    db.add(
+        BrochurePage(brochure_version_id=env.version.id, page_number=1, content="Length 4 m", char_count=10)
+    )
+    db.flush()
+    outcome, _ = env.run()
+    assert outcome.run.status == "succeeded"
+    assert env.provider.calls[0].files == () and "[Page 1]\nLength 4 m" in env.provider.calls[0].prompt
 
 
 # ---------------------------------------------------------------- writer
@@ -533,6 +559,87 @@ def test_edition_brochure_names_its_variants_and_keeps_them_apart(db: Session, t
     assert "Pure L 1.5L Revotron MT #DARK" in names
 
 
+# ---------------------------------------------------------------- superseded variants
+def _active(db: Session) -> set[str]:
+    return set(db.execute(select(Variant.name).where(Variant.is_active.is_(True))).scalars())
+
+
+def test_a_variant_its_only_brochure_no_longer_lists_is_retired(db: Session, tmp_path: Path) -> None:
+    first = extraction([variant("LX", [spec("airbags", "6")]), variant("ZX", [spec("airbags", "6")])])
+    second = extraction([variant("LX", [spec("airbags", "6")]), variant("MX", [spec("airbags", "6")])])
+    env = Env(db, tmp_path, [first, second])
+    env.run()
+    _, summary = env.run(env.add_version(PDF + b" v2"))
+    assert summary.retired == ["ZX"] and summary.retire_skipped is None
+    assert _active(db) == {"LX", "MX"}
+    # Retired, not deleted: the row and its values stay.
+    assert db.execute(select(func.count()).select_from(Variant)).scalar_one() == 3
+
+
+def test_an_extraction_listing_far_fewer_variants_retires_nothing(db: Session, tmp_path: Path) -> None:
+    names = ["LX", "MX", "SX", "ZX"]
+    first = extraction([variant(n, [spec("airbags", "6")]) for n in names])
+    second = extraction([variant("ZX", [spec("airbags", "6")])])
+    env = Env(db, tmp_path, [first, second])
+    env.run()
+    _, summary = env.run(env.add_version(PDF + b" v2"))
+    assert summary.retired == [] and "lists 1 variants" in (summary.retire_skipped or "")
+    assert _active(db) == set(names)
+
+
+def test_variants_with_values_from_another_source_are_kept(db: Session, tmp_path: Path) -> None:
+    env = Env(db, tmp_path, [extraction([variant("LX", [spec("airbags", "6")])])])
+    model = make_model(db, env.brand)
+    make_variant(db, model, "ZX", specs={"airbags": 6}, source_type="manual")
+    make_variant(db, model, "VX")  # no values at all: provenance unknown
+    _, summary = env.run()
+    assert summary.retired == []
+    assert _active(db) == {"LX", "ZX", "VX"}
+
+
+def test_a_variant_another_brochure_still_lists_is_kept(db: Session, tmp_path: Path) -> None:
+    first = extraction([variant("LX", [spec("airbags", "6")]), variant("ZX", [spec("airbags", "6")])])
+    second = extraction([variant("LX", [spec("airbags", "6")]), variant("MX", [spec("airbags", "6")])])
+    env = Env(db, tmp_path, [first, second])
+    env.run()
+    # A second brochure of the model (e.g. an edition) whose latest run lists ZX; its values
+    # matched unchanged, so ZX's stored provenance still names only the first brochure.
+    other = Brochure(
+        brand_id=env.brand.id,
+        adapter="testa",
+        source_url="https://www.testa.example/q-edition.pdf",
+        layout_group="q-edition",
+        model_id=env.brochure.model_id,
+    )
+    db.add(other)
+    db.flush()
+    other_version = BrochureVersion(
+        brochure_id=other.id,
+        sha256="e" * 64,
+        file_path="e.pdf",
+        file_size=1,
+        page_count=1,
+        has_text_layer=True,
+    )
+    db.add(other_version)
+    db.flush()
+    db.add(
+        ExtractionRun(
+            brochure_version_id=other_version.id,
+            llm_provider="fake",
+            llm_model="fake-model",
+            prompt_version=prompt_version(),
+            status="succeeded",
+            attempts=1,
+            raw_output=extraction([variant("ZX", [spec("airbags", "6")])]),
+        )
+    )
+    db.flush()
+    _, summary = env.run(env.add_version(PDF + b" v2"))
+    assert summary.retired == []
+    assert _active(db) == {"LX", "MX", "ZX"}
+
+
 # ---------------------------------------------------------------- brochures too large for one answer
 def truncated() -> LLMOutputError:
     return LLMOutputError("output was truncated (MAX_TOKENS)", raw_text='{"model', finish_reason="MAX_TOKENS")
@@ -618,3 +725,65 @@ def test_variant_list_that_is_cut_off_too_is_an_invalid_run(db: Session, tmp_pat
     outcome, summary = env.run()
     assert outcome.run.status == "invalid" and summary is None
     assert outcome.run.attempts == 2 and outcome.run.raw_output["finish_reason"] == "MAX_TOKENS"
+
+
+# ---------------------------------------------------------------- grouped answers
+def grouped_answer() -> dict[str, Any]:
+    def configuration(name: str, trim: str, powertrain: str, specs: list[dict[str, Any]]) -> dict[str, Any]:
+        return variant(name, specs, fuel="Petrol", trans=powertrain.split()[-1]) | {
+            "trim": trim,
+            "powertrain": powertrain,
+        }
+
+    answer = extraction(
+        [
+            configuration("LX 1.2 MT", "LX", "1.2 MT", []),
+            configuration("ZX 1.2 MT", "zx ", "1.2 MT", []),
+            configuration("ZX 1.5 AT", "ZX", "1.5  AT", [spec("sunroof", "No", "not_available")]),
+        ],
+        common=[spec("length", "4395 mm")],
+    )
+    answer["powertrains"] = [
+        {"label": "1.2 MT", "specs": [spec("engine_displacement", "1197 cc")]},
+        {"label": "1.5 AT", "specs": [spec("engine_displacement", "1497 cc")]},
+    ]
+    answer["trims"] = [
+        {"label": "LX", "specs": [spec("sunroof", "No", "not_available")]},
+        {"label": "ZX", "specs": [spec("sunroof", "Yes")]},
+    ]
+    return answer
+
+
+def test_a_grouped_answer_is_expanded_per_configuration_and_stored_as_answered(
+    db: Session, tmp_path: Path
+) -> None:
+    env = Env(db, tmp_path, [grouped_answer()])
+    outcome, summary = env.run()
+    assert outcome.succeeded and "powertrains" in outcome.run.raw_output
+    by_name = {v.name: {s.key: s.value for s in v.specs} for v in outcome.extraction.variants}
+    assert by_name == {
+        "LX 1.2 MT": {"sunroof": "No", "engine_displacement": "1197 cc"},
+        "ZX 1.2 MT": {"sunroof": "Yes", "engine_displacement": "1197 cc"},  # labels match loosely
+        # The configuration's own value wins over its trim's.
+        "ZX 1.5 AT": {"sunroof": "No", "engine_displacement": "1497 cc"},
+    }
+    assert summary.variants_created == 3
+    # Stored output replays to the same configurations.
+    replayed = extraction_from_raw(outcome.run.raw_output)
+    assert [v.name for v in replayed.variants] == list(by_name)
+
+
+def test_runs_under_an_equivalent_earlier_prompt_are_not_extracted_again(db: Session, tmp_path: Path) -> None:
+    env = Env(db, tmp_path, [])
+    db.add(
+        ExtractionRun(
+            brochure_version_id=env.version.id,
+            llm_provider="fake",
+            llm_model="fake-model",
+            prompt_version=EQUIVALENT_PROMPT_VERSIONS[0],
+            status="succeeded",
+            attempts=1,
+        )
+    )
+    db.flush()
+    assert not env.extractor.needs_extraction(db, env.version)
