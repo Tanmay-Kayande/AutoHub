@@ -1,0 +1,42 @@
+{
+  "https://mgmotor.scene7.com/is/content/mgmotor/brand/mgmotor/homepage/tools/brochures/MG%20Astor%20-%20Brochure.pdf": [
+    "Astor",
+    "MG Astor Main Brochure",
+    true
+  ],
+  "https://mgmotor.scene7.com/is/content/mgmotor/mgmotor/documents/MG%20Comet%20EV%20-%20Brochure.pdf": [
+    "Comet EV",
+    "MG Comet EV Brochure",
+    true
+  ],
+  "https://mgmotor.scene7.com/is/content/mgmotor/mgmotor/documents/MG%20Hector%20-%20Brochure.pdf": [
+    "Hector",
+    "MG Hector Brochure",
+    true
+  ],
+  "https://mgmotor.scene7.com/is/content/mgmotor/mgmotor/documents/MG%20Hector%20Tomahawk%20EV%20-%20Brochure.pdf": [
+    "Hector Tomahawk EV",
+    "MG Hector Tomahawk EV Main Brochure",
+    true
+  ],
+  "https://mgmotor.scene7.com/is/content/mgmotor/mgmotor/documents/MG%20Hector%20Tomahawk%20PHEV%20-%20Brochure.pdf": [
+    "Hector Tomahawk PHEV",
+    "MG Hector Tomahawk PHEV Main Brochure",
+    true
+  ],
+  "https://mgmotor.scene7.com/is/content/mgmotor/mgmotor/documents/MG%20Majestor%20-%20Brochure.pdf": [
+    "Majestor",
+    "Majestor Main Brochure",
+    true
+  ],
+  "https://mgmotor.scene7.com/is/content/mgmotor/mgmotor/documents/MG%20Windsor%20EV%20-%20Brochure.pdf": [
+    "Windsor EV",
+    "MG Windsor EV Main Brochure",
+    true
+  ],
+  "https://mgmotor.scene7.com/is/content/mgmotor/mgmotor/documents/MG%20ZSEV%20-%20Brochure.pdf": [
+    "ZS EV",
+    "MG ZS EV Main Brochure",
+    true
+  ]
+}

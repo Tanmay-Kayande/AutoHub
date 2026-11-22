@@ -49,7 +49,8 @@ from autohub.ingestion.store import BrochureStore
 logger = logging.getLogger(__name__)
 
 PDF_MAGIC = b"%PDF-"
-MAX_PDF_BYTES = 100 * 1024 * 1024  # the largest brochure seen so far is ~19 MB
+# The largest brochure seen so far is Maruti Victoris, ~121 MB (2026-11-22).
+MAX_PDF_BYTES = 160 * 1024 * 1024
 DOWNLOAD_DEADLINE_SECONDS = 600.0  # whole body; the per-read timeout alone allows a slow drip
 TEXT_LAYER_MIN_CHARS = 100  # non-whitespace characters across the document
 _CHUNK_BYTES = 65536

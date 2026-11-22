@@ -27,7 +27,16 @@ def test_settings_start_without_paid_service_keys() -> None:
         settings.require_gemini_key()
     with pytest.raises(ConfigurationError):
         settings.require_serpapi_key()
-    assert settings.enabled_brand_keys == ["mahindra", "hyundai", "tata", "kia"]
+    assert settings.enabled_brand_keys == [
+        "mahindra",
+        "hyundai",
+        "tata",
+        "kia",
+        "maruti",
+        "toyota",
+        "honda",
+        "mg",
+    ]
     assert settings.gemini_use_vertexai is False
     assert "http://localhost:3000" in settings.cors_origin_list
 
