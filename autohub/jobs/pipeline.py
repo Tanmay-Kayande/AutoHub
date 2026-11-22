@@ -28,7 +28,7 @@ from typing import Any, Protocol
 from sqlalchemy import Connection, or_, select, update
 from sqlalchemy.orm import Session
 
-from autohub.assistant.llm import LLMProvider, get_llm_provider
+from autohub.assistant.llm import LLMProvider, extraction_rate_limit, get_llm_provider
 from autohub.catalog.slugs import slugify
 from autohub.core.settings import Settings, get_settings
 from autohub.db.models import Brand, Brochure, BrochureVersion, ExtractionRun, PipelineRun
@@ -126,6 +126,7 @@ class Pipeline:
                 max_attempts=self.settings.extraction_max_attempts,
                 thinking_level=self.settings.extraction_thinking_level,
                 flex=self.settings.extraction_flex,
+                rate_limit=extraction_rate_limit(self.settings),
             )
         )
         self.store = store or BrochureStore(self.settings.data_dir / "brochures")

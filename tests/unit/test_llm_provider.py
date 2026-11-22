@@ -20,6 +20,7 @@ from autohub.assistant.llm import (
     LLMRequestError,
     LLMTimeoutError,
     LLMUnavailableError,
+    RateLimitBackoff,
     parse_structured,
 )
 
@@ -172,6 +173,54 @@ def test_rate_limit_that_outlasts_retries_is_a_quota_error() -> None:
     with pytest.raises(LLMQuotaError, match="rate limited"):
         call(provider)
     assert len(models.calls) == 4
+
+
+OK = '{"name": "x", "count": 1}'
+SLOW = RateLimitBackoff(attempts=6, base_delay_seconds=15.0, max_delay_seconds=100.0)
+
+
+def test_rate_limit_backoff_grows_exponentially_up_to_the_cap() -> None:
+    provider, models, sleeps = make([api_error(429)] * 5 + [response(OK)], rate_limit=SLOW)
+    result = call(provider)
+    assert result.attempts == 6 and len(models.calls) == 6
+    floors = [15.0, 30.0, 60.0, 100.0, 100.0]  # 120 and 240 are capped at 100
+    assert all(floor <= slept <= min(floor + 1.0, 100.0) for floor, slept in zip(floors, sleeps, strict=True))
+
+
+def test_rate_limit_that_outlasts_the_slow_budget_still_stops() -> None:
+    provider, models, sleeps = make([api_error(429)] * 6, rate_limit=SLOW)
+    with pytest.raises(LLMQuotaError, match="rate limited"):
+        call(provider)
+    assert len(models.calls) == 6 and len(sleeps) == 5  # no sleep after the last refusal
+
+
+def test_rate_limits_do_not_use_up_the_attempts_kept_for_other_errors() -> None:
+    outcomes = [api_error(503), api_error(429), api_error(429), api_error(429), response(OK)]
+    provider, models, _ = make(outcomes, max_attempts=2, rate_limit=SLOW)
+    assert call(provider).attempts == 5
+    provider, models, _ = make(
+        [api_error(429), api_error(503), api_error(503)], max_attempts=2, rate_limit=SLOW
+    )
+    with pytest.raises(LLMUnavailableError):
+        call(provider)
+    assert len(models.calls) == 3  # one rate limit plus the two attempts for server errors
+
+
+def test_rate_limit_waits_at_least_the_server_hint_but_never_past_the_cap() -> None:
+    hinted = api_error(429, "RESOURCE_EXHAUSTED", MINUTE_QUOTA)  # RetryInfo: 17 s
+    provider, _, sleeps = make([hinted, response(OK)], rate_limit=RateLimitBackoff(3, 1.0, 60.0))
+    call(provider)
+    assert sleeps[0] >= 17.0
+    provider, _, sleeps = make([hinted, response(OK)], rate_limit=RateLimitBackoff(3, 1.0, 10.0))
+    call(provider)
+    assert sleeps == [10.0]
+
+
+def test_daily_quota_is_not_waited_out_by_the_slow_budget() -> None:
+    provider, models, sleeps = make([api_error(429, "RESOURCE_EXHAUSTED", DAILY_QUOTA)], rate_limit=SLOW)
+    with pytest.raises(LLMQuotaError, match="daily quota"):
+        call(provider)
+    assert len(models.calls) == 1 and sleeps == []
 
 
 def test_server_errors_that_outlast_retries_are_unavailable() -> None:

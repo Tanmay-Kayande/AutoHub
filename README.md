@@ -78,6 +78,8 @@ Configuration is read from `autohub/.env` or `.env` at the repo root (both git-i
 | `GEMINI_USE_VERTEXAI` | no | `true` when `GEMINI_API_KEY` is a Vertex AI key: calls go to Vertex AI and are billed to that Google Cloud project. PDFs over 18 MB are then extracted from their page text (Vertex AI has no Files API) |
 | `EXTRACTION_THINKING_LEVEL` | no | Gemini 3.x thinking level for brochure extraction: `minimal`, `low`, `medium` or `high` (unset: model default). Thinking tokens are billed as output |
 | `EXTRACTION_FLEX` | no | `true` (Vertex AI only): extract on the Flex PayGo tier, about half price but slower |
+| `EXTRACTION_RATE_LIMIT_ATTEMPTS` | no | Requests allowed while rate limited (HTTP 429, not a daily quota) before extraction stops (default 6); counted apart from `EXTRACTION_MAX_ATTEMPTS` |
+| `EXTRACTION_RATE_LIMIT_BASE_DELAY_SECONDS` / `EXTRACTION_RATE_LIMIT_MAX_DELAY_SECONDS` | no | Exponential wait between rate-limited requests: base × 2ⁿ, capped (defaults 15 / 300: 15, 30, 60, 120, 240 s) |
 | `SERPAPI_KEY` | for image search | optional |
 | `CORS_ORIGINS` | no | default `http://localhost:3000,http://127.0.0.1:3000` |
 | `SCHEDULER_ENABLED` | no | monthly pipeline run (`PIPELINE_CRON`, default 03:00 UTC on the 1st) |
