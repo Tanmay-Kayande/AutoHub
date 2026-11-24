@@ -163,6 +163,21 @@ def test_edition_label_from_brochure_title() -> None:
     ):
         assert edition_label(generic, ["Nexon", "Punch"]) is None
 
+    # Real titles that name the document or the brand, not an edition.
+    for title, known in (
+        ("E-brochure Ertiga", ["Ertiga", "Maruti Suzuki"]),
+        ("E-BROCHURE", ["Baleno", "Maruti Suzuki"]),
+        ("Swift Vertical Brochure", ["Swift", "Maruti Suzuki"]),
+        ("MG Hector Tomahawk EV Main Brochure", ["Hector Tomahawk EV", "MG"]),
+        ("The Kia Sorento", ["Sorento", "Kia"]),
+        ("The all-new Seltos", ["Seltos", "Kia"]),
+        ("All New ZR-V", ["ZR-V", "Honda"]),
+        ("Fortuner Specifications", ["Fortuner", "Toyota"]),
+    ):
+        assert edition_label(title, known) is None, title
+    assert edition_label("Eeco Ambulance Brochure", ["Eeco", "Maruti Suzuki"]) == "Ambulance"
+    assert edition_label("WagonR Swivel Seat", ["WagonR", "Maruti Suzuki"]) == "Swivel Seat"
+
     assert with_edition("Pure L 1.5L Revotron MT", "#DARK") == "Pure L 1.5L Revotron MT #DARK"
     assert with_edition("Creative CAMO Petrol 6 MT", "CAMO") == "Creative CAMO Petrol 6 MT"
     assert with_edition("Pure MT", None) == "Pure MT"

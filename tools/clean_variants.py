@@ -36,6 +36,7 @@ from sqlalchemy.orm import Session, aliased
 from autohub.catalog.slugs import unique_slug
 from autohub.catalog.vocab import normalize_drivetrain, normalize_fuel_type, normalize_transmission_type
 from autohub.db.models import (
+    Brand,
     Brochure,
     BrochureVersion,
     ModelGeneration,
@@ -125,9 +126,10 @@ def retire_superseded_legacy(db: Session, result: CleanResult) -> None:
 
 def name_editions(db: Session, result: CleanResult) -> None:
     rows = db.execute(
-        select(Variant, VehicleModel.name, Brochure.title, Brochure.model_hint)
+        select(Variant, VehicleModel.name, Brochure.title, Brochure.model_hint, Brand.name)
         .join(ModelGeneration, ModelGeneration.id == Variant.generation_id)
         .join(VehicleModel, VehicleModel.id == ModelGeneration.model_id)
+        .join(Brand, Brand.id == VehicleModel.brand_id)
         .join(VariantSpec, VariantSpec.variant_id == Variant.id)
         .join(BrochureVersion, BrochureVersion.id == VariantSpec.brochure_version_id)
         .join(Brochure, Brochure.id == BrochureVersion.brochure_id)
@@ -135,16 +137,17 @@ def name_editions(db: Session, result: CleanResult) -> None:
         .distinct()
     ).all()
     sources: dict[int, set[tuple[str | None, str | None]]] = defaultdict(set)
-    found: dict[int, tuple[Variant, str]] = {}
-    for variant, model_name, title, hint in rows:
+    found: dict[int, tuple[Variant, str, str]] = {}
+    for variant, model_name, title, hint, brand_name in rows:
         sources[variant.id].add((title, hint))
-        found[variant.id] = (variant, model_name)
+        found[variant.id] = (variant, model_name, brand_name)
     for variant_id in sorted(found):
         if len(sources[variant_id]) != 1:
             continue  # specs from several brochures: not an edition-only variant
-        variant, model_name = found[variant_id]
+        variant, model_name, brand_name = found[variant_id]
         ((title, hint),) = sources[variant_id]
-        new_name = with_edition(variant.name, edition_label(title, [model_name, *([hint] if hint else [])]))
+        known = [model_name, brand_name, *([hint] if hint else [])]
+        new_name = with_edition(variant.name, edition_label(title, known))
         if new_name == variant.name:
             continue
         taken = set(
