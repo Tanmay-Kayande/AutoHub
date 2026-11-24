@@ -24,11 +24,18 @@ extracted in parts within the same run: one request lists the variants
 extracted with the full rules and the answers are merged. A batch that is still
 too long is halved. Content that already hit the ceiling under this prompt and
 model goes straight to the batched path, so the doomed full request is not repeated.
+
+A PDF above the upload limit is sent as its stored page text. An image-only one (no
+text layer; Maruti Brezza, Ertiga) is split into page ranges that each fit
+(:mod:`autohub.ingestion.pdf_split`); each range is extracted in its own request, told
+the variant names found on earlier pages, and the answers are merged by variant name
+with page numbers mapped back to the whole brochure.
 """
 
 from __future__ import annotations
 
 import logging
+import tempfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -54,6 +61,7 @@ from autohub.ingestion.extraction.schema import (
     VariantIndex,
     VariantOutline,
 )
+from autohub.ingestion.pdf_split import PdfPart, split_pdf
 from autohub.ingestion.store import BrochureStore
 from autohub.ingestion.writer import name_tokens
 from autohub.specs.taxonomy import get_spec
@@ -90,6 +98,79 @@ def batch_instruction(names: list[str], *, first: bool) -> str:
         f"In this part, extract only these variants, with exactly these names:\n{listed}\n"
         f"Values that differ between any variants of the brochure go under each of these variants. {common}"
     )
+
+
+def page_range_instruction(part: PdfPart, number: int, total: int, page_count: int, known: list[str]) -> str:
+    text = (
+        f"\n\nThis brochure is too large to attach whole, so its pages are sent in {total} parts. "
+        f"This is part {number}: brochure pages {part.first_page}-{part.last_page} of {page_count}. "
+        "Extract only what these pages show, and give each value's page number within this attachment. "
+        "If these pages have no specification or feature table, set contains_specifications to false "
+        "and return empty lists."
+    )
+    if known:
+        listed = "\n".join(f"- {name}" for name in known)
+        text += (
+            f"\nEarlier pages listed these variants:\n{listed}\n"
+            "When these pages give values for any of them, or for a trim or powertrain they share, "
+            "use exactly these names; add a variant only if it is not in this list."
+        )
+    return text
+
+
+def shift_pages(extraction: BrochureExtraction, part: PdfPart) -> BrochureExtraction:
+    """Attachment page numbers -> whole-brochure page numbers (unknown when out of range)."""
+
+    def shifted(specs: list[ExtractedSpec]) -> list[ExtractedSpec]:
+        return [
+            s.model_copy(
+                update={
+                    "page": s.page + part.first_page - 1
+                    if s.page is not None and 1 <= s.page <= part.page_count
+                    else None
+                }
+            )
+            for s in specs
+        ]
+
+    return extraction.model_copy(
+        update={
+            "common_specs": shifted(extraction.common_specs),
+            "variants": [v.model_copy(update={"specs": shifted(v.specs)}) for v in extraction.variants],
+        }
+    )
+
+
+def merge_page_ranges(parts: list[BrochureExtraction]) -> BrochureExtraction:
+    """One extraction from the answers for each page range, in page order.
+
+    Variants with the same name (order-free) are one variant: their values are joined,
+    and the cleaner keeps the first value of a repeated key. Ranges without a
+    specification table contribute only the model name and body type.
+    """
+    merged = BrochureExtraction(
+        model_name=None, body_type=None, contains_specifications=False, common_specs=[], variants=[]
+    )
+    by_name: dict[tuple[str, ...], ExtractedVariant] = {}
+    for part in parts:
+        merged.model_name = merged.model_name or part.model_name
+        merged.body_type = merged.body_type or part.body_type
+        if not part.contains_specifications:
+            continue
+        merged.contains_specifications = True
+        merged.common_specs.extend(part.common_specs)
+        for variant in part.variants:
+            key = name_tokens(variant.name)
+            existing = by_name.get(key)
+            if existing is None:
+                by_name[key] = variant.model_copy(update={"specs": list(variant.specs)})
+                merged.variants.append(by_name[key])
+                continue
+            existing.specs.extend(variant.specs)
+            existing.fuel_type = existing.fuel_type or variant.fuel_type
+            existing.transmission = existing.transmission or variant.transmission
+            existing.drivetrain = existing.drivetrain or variant.drivetrain
+    return merged
 
 
 def _only_listed(
@@ -228,41 +309,41 @@ class BrochureExtractor:
 
         prompt = user_prompt(brand=brochure.brand.name, model_hint=brochure.model_hint)
         files = [path]
+        parts: list[PdfPart] = []
+        split_dir: tempfile.TemporaryDirectory[str] | None = None
         # A provider may accept less than Gemini's 50 MB (Vertex AI: inline PDFs only).
         provider_limit = getattr(self.provider, "max_pdf_bytes", None)
         upload_limit = min(PDF_UPLOAD_LIMIT_BYTES, provider_limit or PDF_UPLOAD_LIMIT_BYTES)
         if path.stat().st_size > upload_limit:
             page_text = self._page_text(db, version)
-            if not page_text:
-                return self._finish(
-                    db,
-                    outcome,
-                    "failed",
-                    "file_too_large",
-                    f"{path.stat().st_size} bytes exceeds the PDF upload limit and the file has no text layer",
+            if page_text:
+                files = []
+                prompt = (
+                    f"{prompt}\n\nThe PDF is too large to attach. Its text follows, page by page; "
+                    f"each page starts with a [Page N] line.\n\n{page_text}"
                 )
-            files = []
-            prompt = (
-                f"{prompt}\n\nThe PDF is too large to attach. Its text follows, page by page; "
-                f"each page starts with a [Page N] line.\n\n{page_text}"
-            )
+            else:
+                split_dir = tempfile.TemporaryDirectory(prefix="autohub-split-")
+                parts = split_pdf(path, upload_limit, Path(split_dir.name)) or []
+                if not parts:
+                    split_dir.cleanup()
+                    return self._finish(
+                        db,
+                        outcome,
+                        "failed",
+                        "file_too_large",
+                        f"{path.stat().st_size} bytes exceeds the PDF upload limit, the file has no "
+                        "text layer and it cannot be split into page ranges that fit",
+                    )
 
         spend = _Spend()
+        known_truncated = self._hit_ceiling_before(db, version)
         try:
             raw: dict[str, Any] | None = None
-            if self._hit_ceiling_before(db, version):
-                logger.info("extraction_in_parts version=%s reason=earlier_run_truncated", version.id)
-                value = self._in_parts(prompt, files, spend)
+            if parts:
+                value = self._in_page_ranges(prompt, parts, spend, known_truncated, version.id)
             else:
-                try:
-                    grouped = self._call(prompt, files, GroupedExtraction, spend)
-                    raw = grouped.model_dump(mode="json")
-                    value = grouped.expand()
-                except LLMOutputError as exc:
-                    if exc.finish_reason != TRUNCATED:
-                        raise
-                    logger.info("extraction_in_parts version=%s reason=truncated", version.id)
-                    value = self._in_parts(prompt, files, spend)
+                value, raw = self._whole(prompt, files, spend, known_truncated, version.id)
         except LLMOutputError as exc:
             self._record_spend(run, spend, at_least_one=True)
             run.raw_output = {"text": exc.raw_text[:RAW_TEXT_LIMIT], "finish_reason": exc.finish_reason}
@@ -270,6 +351,9 @@ class BrochureExtractor:
         except LLMError as exc:
             self._record_spend(run, spend)
             return self._finish(db, outcome, "failed", exc.error_type, str(exc))
+        finally:
+            if split_dir is not None:
+                split_dir.cleanup()
 
         self._record_spend(run, spend)
         extraction, unknown = clean_extraction(value)
@@ -303,6 +387,50 @@ class BrochureExtractor:
         spend.input_tokens += result.usage.input_tokens
         spend.output_tokens += result.usage.output_tokens
         return result.value
+
+    def _whole(
+        self, prompt: str, files: list[Path], spend: _Spend, known_truncated: bool, version_id: int
+    ) -> tuple[BrochureExtraction, dict[str, Any] | None]:
+        """One document in one grouped answer, or in variant batches when that is cut off.
+        Returns the extraction and, for a grouped answer, its raw form to store."""
+        if known_truncated:
+            logger.info("extraction_in_parts version=%s reason=earlier_run_truncated", version_id)
+            return self._in_parts(prompt, files, spend), None
+        try:
+            grouped = self._call(prompt, files, GroupedExtraction, spend)
+        except LLMOutputError as exc:
+            if exc.finish_reason != TRUNCATED:
+                raise
+            logger.info("extraction_in_parts version=%s reason=truncated", version_id)
+            return self._in_parts(prompt, files, spend), None
+        return grouped.expand(), grouped.model_dump(mode="json")
+
+    def _in_page_ranges(
+        self, prompt: str, parts: list[PdfPart], spend: _Spend, known_truncated: bool, version_id: int
+    ) -> BrochureExtraction:
+        page_count = parts[-1].last_page
+        answers: list[BrochureExtraction] = []
+        known: list[str] = []
+        seen: set[tuple[str, ...]] = set()
+        for number, part in enumerate(parts, 1):
+            logger.info(
+                "extraction_page_range version=%s part=%s/%s pages=%s-%s bytes=%s",
+                version_id,
+                number,
+                len(parts),
+                part.first_page,
+                part.last_page,
+                part.path.stat().st_size,
+            )
+            instruction = page_range_instruction(part, number, len(parts), page_count, known)
+            value, _ = self._whole(prompt + instruction, [part.path], spend, known_truncated, version_id)
+            answers.append(shift_pages(value, part))
+            for variant in value.variants:
+                key = name_tokens(variant.name)
+                if key not in seen and value.contains_specifications:
+                    seen.add(key)
+                    known.append(variant.name)
+        return merge_page_ranges(answers)
 
     def _in_parts(self, prompt: str, files: list[Path], spend: _Spend) -> BrochureExtraction:
         index = self._call(prompt + INDEX_INSTRUCTION, files, VariantIndex, spend)

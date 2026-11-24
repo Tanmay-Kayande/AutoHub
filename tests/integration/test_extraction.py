@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+import pymupdf
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -323,6 +325,78 @@ def test_pdf_over_the_upload_limit_without_text_fails_without_calling_the_provid
     outcome, _ = env.run()
     assert outcome.run.status == "failed" and outcome.run.error_type == "file_too_large"
     assert env.provider.calls == []
+
+
+def image_only_pdf(pages: int) -> bytes:
+    doc = pymupdf.open()
+    for _ in range(pages):
+        page = doc.new_page()
+        pix = pymupdf.Pixmap(pymupdf.csRGB, 60, 60, os.urandom(60 * 60 * 3), False)
+        page.insert_image(pymupdf.Rect(0, 0, 200, 200), pixmap=pix)
+    data = bytes(doc.tobytes())
+    doc.close()
+    return data
+
+
+def test_image_only_pdf_over_the_limit_is_extracted_in_page_ranges(
+    db: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data = image_only_pdf(4)
+    # Pages are equal-sized noise: two fit in 60% of the file, three do not.
+    monkeypatch.setattr(extractor_module, "PDF_UPLOAD_LIMIT_BYTES", int(len(data) * 0.6))
+    first = extraction(
+        [variant("LXi 1.5 MT", [spec("airbags", "2")], fuel="Petrol"), variant("ZXi 1.5 AT", [])],
+        [{**spec("length", "3995 mm"), "page": 2}],
+    )
+    second = extraction(
+        [
+            variant(
+                "LXi 1.5 MT",
+                [{**spec("airbags", "6"), "page": 1}, {**spec("boot_capacity", "328 L"), "page": 2}],
+            ),
+            variant("ZXi 1.5 AT", [spec("airbags", "6")], trans="6AT"),
+        ],
+        model="Brezza",
+    )
+    env = Env(db, tmp_path, [first, second])
+    env.version = env.add_version(data)
+    env.version.has_text_layer = False
+
+    outcome, _ = env.run()
+
+    assert outcome.run.status == "succeeded" and outcome.run.attempts == 2
+    calls = env.provider.calls
+    assert [len(c.files) for c in calls] == [1, 1]
+    assert "part 1: brochure pages 1-2 of 4" in calls[0].prompt
+    assert "Earlier pages" not in calls[0].prompt
+    assert "part 2: brochure pages 3-4 of 4" in calls[1].prompt
+    assert "- LXi 1.5 MT\n- ZXi 1.5 AT" in calls[1].prompt
+    assert not calls[0].files[0].exists()  # split files are removed after the run
+    assert outcome.extraction is not None
+    merged = outcome.extraction
+    assert merged.model_name == "Model Q"
+    assert merged.common_specs[0].page == 2
+    lxi, zxi = merged.variants
+    assert lxi.fuel_type == "Petrol" and zxi.transmission == "6AT"
+    # First value of a repeated key wins; pages map back to the whole brochure.
+    assert [(s.key, s.value, s.page) for s in lxi.specs] == [
+        ("airbags", "2", None),  # page 12 is outside a two-page attachment
+        ("boot_capacity", "328 L", 4),  # page 2 of pages 3-4
+    ]
+    assert env.provider.answers == []
+
+
+def test_page_ranges_without_a_table_add_nothing(db: Session, tmp_path: Path) -> None:
+    from autohub.ingestion.extraction.extractor import merge_page_ranges
+    from autohub.ingestion.extraction.schema import GroupedExtraction
+
+    cover = GroupedExtraction.model_validate(
+        {**extraction([variant("Ghost", [])], model="Brezza"), "contains_specifications": False}
+    ).expand()
+    table = GroupedExtraction.model_validate(extraction([variant("LXi", [])], model="Other")).expand()
+    merged = merge_page_ranges([cover, table])
+    assert merged.model_name == "Brezza" and merged.contains_specifications
+    assert [v.name for v in merged.variants] == ["LXi"]
 
 
 def test_a_provider_with_a_lower_pdf_limit_gets_page_text(db: Session, tmp_path: Path) -> None:
