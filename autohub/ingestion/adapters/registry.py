@@ -44,21 +44,29 @@ def _load_builtin_adapters() -> None:
     """Import and register the shipped adapters, once.
 
     One line per brand, added by the task that builds the adapter
-    (T-402 Mahindra, T-403 Hyundai, T-404 Tata, Kia).
+    (T-402 Mahindra, T-403 Hyundai, T-404 Tata, Kia, Maruti Suzuki, Toyota, Honda, MG).
     """
     global _builtins_loaded
     if _builtins_loaded:
         return
     _builtins_loaded = True
+    from autohub.ingestion.adapters.honda import HondaAdapter
     from autohub.ingestion.adapters.hyundai import HyundaiAdapter
     from autohub.ingestion.adapters.kia import KiaAdapter
     from autohub.ingestion.adapters.mahindra import MahindraAdapter
+    from autohub.ingestion.adapters.maruti import MarutiAdapter
+    from autohub.ingestion.adapters.mg import MGAdapter
     from autohub.ingestion.adapters.tata import TataAdapter
+    from autohub.ingestion.adapters.toyota import ToyotaAdapter
 
     register(MahindraAdapter)
     register(HyundaiAdapter)
     register(TataAdapter)
     register(KiaAdapter)
+    register(MarutiAdapter)
+    register(ToyotaAdapter)
+    register(HondaAdapter)
+    register(MGAdapter)
 
 
 def available_keys() -> list[str]:

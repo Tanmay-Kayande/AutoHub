@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     # is a request against the daily quota, so a timed-out extraction is retried once only.
     extraction_timeout_seconds: float = Field(default=600.0, gt=0)
     extraction_max_attempts: int = Field(default=2, ge=1)
+    # A plain rate limit (HTTP 429, not a daily quota or the spend cap) is refused before any
+    # work, so extraction waits it out on its own, longer budget: up to this many rate-limited
+    # requests, sleeping base * 2^n s (capped) between them - 15+30+60+120+240 s by default.
+    # Flex PayGo is throttled more often. A rate limit that outlasts this still stops the run.
+    extraction_rate_limit_attempts: int = Field(default=6, ge=1)
+    extraction_rate_limit_base_delay_seconds: float = Field(default=15.0, gt=0)
+    extraction_rate_limit_max_delay_seconds: float = Field(default=300.0, gt=0)
     # Gemini 3.x thinking level for extraction (thinking tokens are billed as output); unset: model
     # default. Measured on Venue with 3.5-flash: "low" listed 2 of 23 variants, "medium" saved nothing.
     extraction_thinking_level: Literal["minimal", "low", "medium", "high"] | None = None
@@ -74,7 +81,7 @@ class Settings(BaseSettings):
 
     # --- ingestion ---
     data_dir: Path = REPO_ROOT / "data"
-    enabled_brands: str = "mahindra,hyundai,tata,kia"
+    enabled_brands: str = "mahindra,hyundai,tata,kia,maruti,toyota,honda,mg"
     crawler_user_agent: str = "AutoHubBot/2.0 (+automotive brochure indexer; contact: site owner)"
     crawler_delay_seconds: float = Field(default=2.0, ge=0)
     crawler_max_pages_per_brand: int = Field(default=60, ge=1)

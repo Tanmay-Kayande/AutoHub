@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from autohub.assistant.llm import FakeLLMProvider, LLMQuotaError
+from autohub.assistant.llm import FakeLLMProvider, LLMQuotaError, RateLimitBackoff
 from autohub.core.settings import get_settings
 from autohub.db.models import Brand, Brochure, BrochureVersion, ExtractionRun, PipelineRun, Variant
 from autohub.ingestion.adapters.base import BrandAdapter, DiscoveredBrochure, DiscoveryResult, PageFetcher
@@ -426,6 +426,12 @@ def test_extraction_provider_gets_its_own_timeout_and_retry_budget(
         "max_attempts": settings.extraction_max_attempts,
         "thinking_level": settings.extraction_thinking_level,
         "flex": settings.extraction_flex,
+        "rate_limit": RateLimitBackoff(
+            attempts=settings.extraction_rate_limit_attempts,
+            base_delay_seconds=settings.extraction_rate_limit_base_delay_seconds,
+            max_delay_seconds=settings.extraction_rate_limit_max_delay_seconds,
+        ),
     }
+    assert settings.extraction_rate_limit_attempts > settings.extraction_max_attempts
     assert settings.extraction_timeout_seconds > settings.llm_timeout_seconds
     assert settings.extraction_max_attempts < settings.llm_max_attempts

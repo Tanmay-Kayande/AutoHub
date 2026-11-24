@@ -167,6 +167,27 @@ def _quota_details(details: Any) -> tuple[bool, float | None]:
     return daily, delay
 
 
+@dataclass(frozen=True)
+class RateLimitBackoff:
+    """How long to wait out a plain rate limit (HTTP 429 that is not a daily quota).
+
+    ``attempts`` counts rate-limited requests; retry ``n`` waits ``base * 2**(n-1)`` seconds
+    (plus jitter, at least the server's ``RetryInfo``), capped at ``max_delay_seconds``.
+    """
+
+    attempts: int
+    base_delay_seconds: float = 2.0
+    max_delay_seconds: float = MAX_RETRY_DELAY_SECONDS
+
+
+def extraction_rate_limit(settings: Settings) -> RateLimitBackoff:
+    return RateLimitBackoff(
+        attempts=settings.extraction_rate_limit_attempts,
+        base_delay_seconds=settings.extraction_rate_limit_base_delay_seconds,
+        max_delay_seconds=settings.extraction_rate_limit_max_delay_seconds,
+    )
+
+
 SPEND_CAP_MARKER = "spend cap"
 SPEND_CAP_PREFIX = "spend cap reached"
 
@@ -191,8 +212,12 @@ class GeminiProvider:
         vertexai: bool = False,
         thinking_level: str | None = None,
         flex: bool = False,
+        rate_limit: RateLimitBackoff | None = None,
     ) -> None:
         """``thinking_budget=0`` turns thinking off (cheapest); ``None`` leaves the model default.
+
+        ``rate_limit`` sets how plain rate limits are waited out; unset: ``max_attempts``
+        requests with the same short backoff as other errors.
 
         Gemini 3.x takes ``thinking_level`` (minimal/low/medium/high) instead of a budget; unset
         leaves the model default. Thinking tokens are billed as output.
@@ -206,6 +231,7 @@ class GeminiProvider:
         self.model = model
         self.vertexai = vertexai
         self._max_attempts = max_attempts
+        self._rate_limit = rate_limit or RateLimitBackoff(attempts=max_attempts)
         self._thinking_budget = thinking_budget
         self._thinking_level = thinking_level
         self.flex = flex and vertexai
@@ -387,45 +413,60 @@ class GeminiProvider:
             logger.warning("llm_file_delete_failed name=%s error=%s", getattr(remote, "name", "?"), exc)
 
     def call_with_retry(self, operation: Callable[[], Any]) -> tuple[Any, int]:
-        """Run ``operation`` with retry. Returns (result, attempts used)."""
-        last: LLMError | None = None
-        for attempt in range(1, self._max_attempts + 1):
+        """Run ``operation`` with retry. Returns (result, attempts used).
+
+        A plain rate limit and every other retryable error have separate budgets: a 429 is
+        refused before any work is done, so it is waited out on the (longer) ``rate_limit``
+        schedule without using up the attempts kept for timeouts and server errors. When
+        either budget runs out the last error is raised; a rate limit is then still an
+        :class:`LLMQuotaError`, so the pipeline stops instead of hammering the API.
+        """
+        attempt = failures = rate_limited = 0
+        while True:
+            attempt += 1
             try:
                 return operation(), attempt
             except Exception as exc:
                 error = self._translate(exc)
-                retry, delay = self._retry_plan(exc, error, attempt)
-                if not retry:
+                if not self._retryable(exc, error):
                     raise error from exc
-                last = error
-                if attempt < self._max_attempts:
-                    logger.warning(
-                        "llm_retry model=%s attempt=%s delay=%.1f reason=%s",
-                        self.model,
-                        attempt,
-                        delay,
-                        error,
-                    )
-                    self._sleep(delay)
-        assert last is not None
-        raise last
+                if isinstance(error, LLMQuotaError):
+                    rate_limited += 1
+                    if rate_limited >= self._rate_limit.attempts:
+                        raise error from exc
+                    delay = self._rate_limit_delay(exc, rate_limited)
+                else:
+                    failures += 1
+                    if failures >= self._max_attempts:
+                        raise error from exc
+                    delay = self._backoff(failures)
+                logger.warning(
+                    "llm_retry model=%s attempt=%s delay=%.1f reason=%s", self.model, attempt, delay, error
+                )
+                self._sleep(delay)
 
     @staticmethod
     def _backoff(attempt: int) -> float:
         return min(MAX_RETRY_DELAY_SECONDS, float(2**attempt) + random.uniform(0, 1))
 
-    def _retry_plan(self, exc: Exception, error: LLMError, attempt: int) -> tuple[bool, float]:
+    def _rate_limit_delay(self, exc: Exception, retry: int) -> float:
+        """Exponential wait before rate-limit retry ``retry`` (1-based), at least the server's hint."""
+        plan = self._rate_limit
+        backoff = plan.base_delay_seconds * 2 ** (retry - 1) + random.uniform(0, 1)
+        _, server_delay = _quota_details(getattr(exc, "details", None))
+        return min(max(backoff, server_delay or 0.0), plan.max_delay_seconds)
+
+    @staticmethod
+    def _retryable(exc: Exception, error: LLMError) -> bool:
         if isinstance(error, (LLMRequestError, LLMOutputError)):
-            return False, 0.0
+            return False
         if isinstance(error, LLMQuotaError):
+            # The spend cap and a daily quota hold until someone acts or the day ends.
             if str(error).startswith(SPEND_CAP_PREFIX):
-                return False, 0.0
-            daily, server_delay = _quota_details(getattr(exc, "details", None))
-            if daily:
-                return False, 0.0
-            delay = max(self._backoff(attempt), server_delay or 0.0)
-            return True, min(delay, MAX_RETRY_DELAY_SECONDS)
-        return True, self._backoff(attempt)
+                return False
+            daily, _ = _quota_details(getattr(exc, "details", None))
+            return not daily
+        return True
 
     def _translate(self, exc: Exception) -> LLMError:
         if isinstance(exc, LLMError):
@@ -551,6 +592,7 @@ def get_llm_provider(
     max_attempts: int | None = None,
     thinking_level: str | None = None,
     flex: bool = False,
+    rate_limit: RateLimitBackoff | None = None,
 ) -> LLMProvider:
     """The provider selected by ``LLM_PROVIDER``. Demands the API key only here.
 
@@ -567,6 +609,7 @@ def get_llm_provider(
             vertexai=settings.gemini_use_vertexai,
             thinking_level=thinking_level,
             flex=flex,
+            rate_limit=rate_limit,
         )
     if settings.llm_provider == "fake":
         return FakeLLMProvider()

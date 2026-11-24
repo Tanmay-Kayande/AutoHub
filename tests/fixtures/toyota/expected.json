@@ -1,0 +1,82 @@
+{
+  "https://toyotabharat.com/documents/brochures/e-brochure-rumion.pdf": [
+    "Rumion",
+    "Rumion Brochure",
+    true
+  ],
+  "https://www.toyotabharat.com/documents/brochures/e-brochure-camry-hybrid.pdf": [
+    "Camry",
+    "Camry Brochure",
+    true
+  ],
+  "https://www.toyotabharat.com/documents/brochures/e-brochure-glanza.pdf": [
+    "Glanza",
+    "Glanza Brochure",
+    true
+  ],
+  "https://www.toyotabharat.com/documents/brochures/e-brochure-hilux.pdf": [
+    "Hilux",
+    "Hilux Brochure",
+    true
+  ],
+  "https://www.toyotabharat.com/documents/brochures/e-brochure-hycross.pdf": [
+    "Innova Hycross",
+    "Innova Hycross Brochure",
+    true
+  ],
+  "https://www.toyotabharat.com/documents/brochures/e-brochure-lc-300.pdf": [
+    "Land Cruiser 300",
+    "Land Cruiser 300 Brochure",
+    true
+  ],
+  "https://www.toyotabharat.com/documents/brochures/e-brochure-urbancruiser-ebella.pdf": [
+    "Urban Cruiser Ebella",
+    "Urban Cruiser Ebella Brochure",
+    true
+  ],
+  "https://www.toyotabharat.com/documents/brochures/e-brochure-urbancruiser-hyryder-spec.pdf": [
+    "Urban Cruiser Hyryder",
+    "Urban Cruiser Hyryder Specifications",
+    false
+  ],
+  "https://www.toyotabharat.com/documents/brochures/e-brochure-urbancruiser-hyryder.pdf": [
+    "Urban Cruiser Hyryder",
+    "Urban Cruiser Hyryder Brochure",
+    true
+  ],
+  "https://www.toyotabharat.com/documents/brochures/fortuner-mmc/combined-brochure-mobile.pdf": [
+    "Fortuner",
+    "Fortuner Brochure",
+    true
+  ],
+  "https://www.toyotabharat.com/documents/brochures/fortuner-mmc/combined-specsheet.pdf": [
+    "Fortuner",
+    "Fortuner Specifications",
+    false
+  ],
+  "https://www.toyotabharat.com/documents/brochures/fortuner-mmc/gr_mobile-brochure_360x640pix.pdf": [
+    "Fortuner",
+    "Fortuner Brochure",
+    true
+  ],
+  "https://www.toyotabharat.com/documents/brochures/fortuner-mmc/legender-brochure-mobile.pdf": [
+    "Legender",
+    "Legender Brochure",
+    true
+  ],
+  "https://www.toyotabharat.com/documents/brochures/fortuner-mmc/legender-spec-brochure.pdf": [
+    "Legender",
+    "Legender Specifications",
+    false
+  ],
+  "https://www.toyotabharat.com/documents/brochures/innova-mmc/e-brochure-innova-crysta.pdf": [
+    "Innova Crysta",
+    "Innova Crysta Brochure",
+    true
+  ],
+  "https://www.toyotabharat.com/documents/brochures/urban-cruiser-taisor/e-brochure-uc-taisor.pdf": [
+    "Urban Cruiser Taisor",
+    "Urban Cruiser Taisor Brochure",
+    true
+  ]
+}

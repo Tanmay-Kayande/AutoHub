@@ -23,7 +23,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from autohub.assistant.llm import get_llm_provider
+from autohub.assistant.llm import extraction_rate_limit, get_llm_provider
 from autohub.core.logging import configure_logging
 from autohub.core.settings import Settings, get_settings
 from autohub.db.models import Brand, BrochureVersion, ExtractionRun, ModelGeneration, Variant, VehicleImage
@@ -86,6 +86,7 @@ def extract(
         max_attempts=settings.extraction_max_attempts,
         thinking_level=settings.extraction_thinking_level,
         flex=settings.extraction_flex,
+        rate_limit=extraction_rate_limit(settings),
     )
     extractor = BrochureExtractor(provider, BrochureStore(settings.brochure_dir))
     done = 0

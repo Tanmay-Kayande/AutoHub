@@ -157,16 +157,36 @@ def same_car(
     return a.engines <= b.engines or b.engines <= a.engines
 
 
-_TITLE_FILLER = frozenset({"brochure", "download", "main", "the", "new", "catalogue", "catalog"})
+# Words a title uses for the document itself, not an edition: "E-brochure" splits into
+# "e" + "brochure"; Toyota's spec sheets say "Specifications"; Maruti's Swift layout "Vertical".
+_TITLE_FILLER = frozenset(
+    {
+        "brochure",
+        "download",
+        "main",
+        "the",
+        "new",
+        "all",
+        "e",
+        "catalogue",
+        "catalog",
+        "specifications",
+        "specification",
+        "specs",
+        "vertical",
+        "web",
+    }
+)
 _YEAR = re.compile(r"^(19|20)\d\d$")
 
 
-def edition_label(title: str | None, model_names: list[str]) -> str | None:
-    """The edition a brochure title names beyond the model: ``"Sierra #DARK Brochure"``
-    -> ``"#DARK"``; ``"Nexon iCNG Brochure 2026"`` and ``"Brochure"`` -> ``None``."""
+def edition_label(title: str | None, known_names: list[str]) -> str | None:
+    """The edition a brochure title names beyond the model and brand (``known_names``):
+    ``"Sierra #DARK Brochure"`` -> ``"#DARK"``; ``"Nexon iCNG Brochure 2026"``,
+    ``"MG Astor Main Brochure"`` and ``"E-BROCHURE"`` -> ``None``."""
     if not title:
         return None
-    model_words = {w for n in model_names for w in _WORD.findall(n.lower())}
+    model_words = {w for n in known_names for w in _WORD.findall(n.lower())}
     kept = []
     for word in title.split():
         tokens = _WORD.findall(word.lower())
@@ -449,7 +469,8 @@ def write_extraction(
     # Names are kept as printed; powertrain words are added only where printed names repeat.
     printed = Counter(name_tokens(v.name) for v in extraction.variants)
     edition = edition_label(
-        brochure.title, [model.name, *([brochure.model_hint] if brochure.model_hint else [])]
+        brochure.title,
+        [model.name, brochure.brand.name, *([brochure.model_hint] if brochure.model_hint else [])],
     )
     names = [
         with_edition(
