@@ -219,16 +219,31 @@ def full_variant_name(extracted: ExtractedVariant) -> str:
     return " ".join([name, *extra])
 
 
+_ELECTRIFIED_WORDS = frozenset({"ev", "phev", "hev", "electric", "hybrid"})
+
+
+def _electrified_words(name: str) -> frozenset[str]:
+    return _ELECTRIFIED_WORDS.intersection(re.findall(r"[a-z]+", name.lower()))
+
+
 def match_model(candidates: list[str], models: list[VehicleModel]) -> VehicleModel | None:
-    """Exact compact-name match first, then the closest name above ``MODEL_MATCH_RATIO``."""
+    """Exact compact-name match first, then the closest name above ``MODEL_MATCH_RATIO``.
+
+    The fuzzy step never pairs names whose EV/PHEV/hybrid words differ.
+    """
     keys = [compact(c) for c in candidates if c and compact(c)]
     by_key = {compact(m.name): m for m in models}
     for key in keys:
         if key in by_key:
             return by_key[key]
     best: tuple[float, VehicleModel | None] = (0.0, None)
-    for key in keys:
+    for candidate in candidates:
+        key = compact(candidate) if candidate else ""
+        if not key:
+            continue
         for model_key, model in by_key.items():
+            if _electrified_words(candidate) != _electrified_words(model.name):
+                continue  # "Hector Tomahawk PHEV" is a different model from "Hector Tomahawk EV"
             ratio = SequenceMatcher(None, key, model_key).ratio()
             if ratio > best[0]:
                 best = (ratio, model)

@@ -427,6 +427,31 @@ def test_existing_model_is_matched_despite_spacing(db: Session, tmp_path: Path) 
     assert env.brochure.model_id == existing.id
 
 
+def test_phev_brochure_does_not_fuzzy_match_the_ev_model(db: Session, tmp_path: Path) -> None:
+    env = Env(
+        db,
+        tmp_path,
+        [extraction([variant("Essence PHEV", [spec("length", "4699 mm")])], model="Hector Tomahawk PHEV")],
+        hint="Hector Tomahawk PHEV",
+    )
+    ev = make_model(db, env.brand, "Hector Tomahawk EV")
+    _, summary = env.run()
+    assert summary.model_created and summary.model_id != ev.id
+    assert db.get(VehicleModel, summary.model_id).name == "Hector Tomahawk PHEV"  # type: ignore[union-attr]
+
+
+def test_fuzzy_model_match_still_works_without_powertrain_words(db: Session, tmp_path: Path) -> None:
+    env = Env(
+        db,
+        tmp_path,
+        [extraction([variant("AX5", [spec("length", "3990 mm")])], model="Scorpio Nn")],
+        hint="Scorpio Nn",
+    )
+    existing = make_model(db, env.brand, "Scorpio N")
+    _, summary = env.run()
+    assert summary.model_id == existing.id and not summary.model_created
+
+
 def test_variants_are_matched_by_name_and_codes_are_not_overwritten(db: Session, tmp_path: Path) -> None:
     env = Env(
         db, tmp_path, [extraction([variant("AX7 L", [spec("airbags", "6")], fuel="Petrol", trans="AT")])]
